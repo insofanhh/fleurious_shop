@@ -2659,7 +2659,7 @@ function EntityForm({
       {(section === "products" || section === "inventory") && (
         <>
           <label>
-            Hoặc tải ảnh sản phẩm (JPG, PNG, WebP · tối đa 5 MB)
+            Hoặc tải ảnh sản phẩm (JPG, PNG, WebP · tối đa 4 MB)
             <input
               type="file"
               accept="image/jpeg,image/png,image/webp"
@@ -2667,6 +2667,10 @@ function EntityForm({
               onChange={async (e) => {
                 const file = e.target.files?.[0];
                 if (!file) return;
+                if (file.size > 4 * 1024 * 1024) {
+                  toast("Ảnh tối đa 4 MB.");
+                  return;
+                }
                 setUploading(true);
                 try {
                   const form = new FormData();

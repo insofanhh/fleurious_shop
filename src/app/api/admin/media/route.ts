@@ -17,16 +17,16 @@ export async function POST(request: NextRequest) {
     if (!user || !can(user.role, "products"))
       fail("FORBIDDEN", "Không có quyền tải ảnh.", 403);
     await rateLimit(`upload:${user.id}`, 10, 60);
-    if (Number(request.headers.get("content-length") ?? 0) > 6 * 1024 * 1024)
-      fail("FILE_TOO_LARGE", "Ảnh tối đa 5 MB.", 413);
+    if (Number(request.headers.get("content-length") ?? 0) > 4.4 * 1024 * 1024)
+      fail("FILE_TOO_LARGE", "Ảnh tối đa 4 MB.", 413);
     const form = await request.formData();
     const file = form.get("file");
     if (
       !(file instanceof File) ||
-      file.size > 5 * 1024 * 1024 ||
+      file.size > 4 * 1024 * 1024 ||
       !["image/jpeg", "image/png", "image/webp"].includes(file.type)
     )
-      fail("INVALID_IMAGE", "Chọn ảnh JPG, PNG hoặc WebP, tối đa 5 MB.");
+      fail("INVALID_IMAGE", "Chọn ảnh JPG, PNG hoặc WebP, tối đa 4 MB.");
     const buffer = await sharp(Buffer.from(await file.arrayBuffer()), {
       limitInputPixels: 40000000,
     })

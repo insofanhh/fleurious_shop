@@ -17,5 +17,3 @@ output/
 backups/
 docs/screenshots/
 
-.vercel
-.env*

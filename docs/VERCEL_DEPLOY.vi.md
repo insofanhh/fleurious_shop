@@ -12,7 +12,7 @@
 
 Vercel chạy Next.js trực tiếp. Local/container vẫn chạy `server.ts` + Socket.IO. Cloud dùng `/api/realtime` với WebSocket của Vercel; mỗi kết nối đọc các sự kiện đã lưu trong TiDB theo đúng user/quyền, chỉ gửi tín hiệu yêu cầu tải lại dữ liệu. Phiên được kiểm tra lại, tự reconnect trước giới hạn thời gian của function. Có đồng bộ dự phòng khi mất kết nối.
 
-Worker cloud chạy qua `after()` sau API và qua scheduler; job/outbox có lease, retry và khóa idempotency. Ảnh upload được re-encode WebP rồi lưu vào bảng `MediaAsset` trên TiDB, thay cho filesystem tạm của Vercel. Ảnh public/brand đi cùng code.
+Worker cloud chạy qua `after()` sau API và qua scheduler; job/outbox có lease, retry và khóa idempotency. Ảnh upload tối đa 4 MB để nằm dưới giới hạn request của Vercel, được re-encode WebP rồi lưu vào bảng `MediaAsset` trên TiDB, thay cho filesystem tạm. Ảnh public/brand đi cùng code.
 
 ## Thiết lập cron-job.org thủ công
 
@@ -41,3 +41,5 @@ Khi chưa bật cron, API đang có traffic vẫn xử lý outbox/dọn reservat
 `scripts/migrate-to-tidb.ts --copy` đọc source `.env` và destination `.env.deploy.local`. Script chỉ cho phép nguồn local, đích TiDB và các bảng đích trống; không xóa/ghi đè database đang có dữ liệu. Script tạo snapshot nhất quán trong `backups/` (đã gitignore), import trong transaction và đối chiếu số bản ghi. Migration schema cần chạy trước.
 
 Giữ database local làm bản nguồn; ứng dụng local tiếp tục dùng `.env` của local. Backup dữ liệu/secret không commit lên Git. Sau khi cloud bắt đầu nhận đơn, cloud là nguồn dữ liệu vận hành; không chạy lại script import local.
+
+Lần triển khai đầu đã chuyển và đối chiếu 876 bản ghi trên 40 bảng, sau đó áp dụng migration cloud media. Bộ test local 89/89 đạt. Smoke trên production đã kiểm tra health, đăng nhập/quyền admin, giải mã cấu hình SePay, PNG 600 dpi, upload/đọc WebP từ TiDB và kết nối WebSocket. Không tạo đơn hoặc chuyển tiền để thử trên production.
