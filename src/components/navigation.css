@@ -442,7 +442,7 @@
   }
   .streak-camera {
     right: 22px;
-    bottom: calc(96px + env(safe-area-inset-bottom));
+    bottom: calc(var(--mobile-nav-height) + var(--mobile-nav-bottom) + 20px);
     width: 54px;
     height: 54px;
   }

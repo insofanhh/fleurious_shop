@@ -1,4 +1,5 @@
 import { getSepayConfig } from "@/lib/sepay-settings";
+import { PwaViewport } from "@/components/pwa-viewport";
 import { googleAuthAvailable } from "@/lib/google-auth";
 import type { Metadata, Viewport } from "next";
 import "@fontsource/lora/400.css";
@@ -103,6 +104,7 @@ export default async function RootLayout({
   return (
     <html lang="vi">
       <body>
+        <PwaViewport />
         <a href="#main-content" className="skip-link">
           Đến nội dung chính
         </a>

@@ -10,6 +10,9 @@
   --sans: "Be Vietnam Pro", sans-serif;
   --success: #466451;
   --radius: 16px;
+  --mobile-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --mobile-nav-height: 64px;
+  --mobile-nav-bottom: calc(12px + var(--mobile-safe-bottom));
 }
 .wordmark > .wordmark-name {
   margin-left: 0 !important;
@@ -3540,7 +3543,8 @@ textarea {
     font-size: 29px;
   }
   .footer {
-    padding: 35px 20px 95px;
+    padding: 35px 20px
+      calc(var(--mobile-nav-height) + var(--mobile-nav-bottom) + 20px);
     grid-template-columns: 1fr 1fr;
     gap: 28px 20px;
     font-size: 9px;
@@ -3558,12 +3562,14 @@ textarea {
   .bottom-nav {
     display: flex !important;
     position: fixed;
-    bottom: 12px;
+    bottom: var(--mobile-nav-bottom);
     left: 15px;
     right: 15px;
     z-index: 50;
     justify-content: space-around;
-    padding: 8px 5px calc(7px + env(safe-area-inset-bottom));
+    height: var(--mobile-nav-height);
+    padding: 8px 5px;
+    align-items: center;
     background: #f7efe5eb;
     border: 1px solid #fff9;
     border-radius: 21px;
@@ -3573,12 +3579,14 @@ textarea {
     backdrop-filter: blur(20px);
   }
   .bottom-nav a {
+    position: relative;
     display: flex;
     flex-direction: column;
     gap: 4px;
     align-items: center;
     justify-content: center;
-    min-height: 43px;
+    height: 46px;
+    min-height: 46px;
     color: #92756a;
     font-size: 8px;
     width: 25%;
@@ -3593,10 +3601,10 @@ textarea {
     background: var(--wine);
     border-radius: 50%;
     position: absolute;
-    bottom: 5px;
+    bottom: -4px;
   }
   .toast {
-    bottom: 100px;
+    bottom: calc(var(--mobile-nav-height) + var(--mobile-nav-bottom) + 12px);
     padding: 12px 14px;
     font-size: 10px;
     gap: 10px;

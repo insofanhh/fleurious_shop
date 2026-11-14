@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { Download, RefreshCw } from "lucide-react";
+import { isStandalonePwa } from "@/lib/pwa-display";
 interface InstallEvent extends Event {
   prompt: () => Promise<void>;
   userChoice: Promise<{ outcome: string }>;
@@ -10,16 +11,36 @@ export function PwaCard() {
     [installed, setInstalled] = useState(false),
     [waiting, setWaiting] = useState<ServiceWorker | null>(null);
   useEffect(() => {
-    setInstalled(window.matchMedia("(display-mode: standalone)").matches);
+    let active = true;
+    let registration: ServiceWorkerRegistration | undefined;
+    let installing: ServiceWorker | null = null;
+    const checkUpdate = () => {
+      if (active && registration?.waiting) setWaiting(registration.waiting);
+    };
+    const watchUpdate = () => {
+      installing?.removeEventListener("statechange", checkUpdate);
+      installing = registration?.installing ?? null;
+      installing?.addEventListener("statechange", checkUpdate);
+      checkUpdate();
+    };
+    setInstalled(isStandalonePwa());
     const listener = (event: Event) => {
       event.preventDefault();
       setPrompt(event as InstallEvent);
     };
     window.addEventListener("beforeinstallprompt", listener);
     navigator.serviceWorker?.getRegistration().then((r) => {
-      if (r?.waiting) setWaiting(r.waiting);
+      if (!active || !r) return;
+      registration = r;
+      registration.addEventListener("updatefound", watchUpdate);
+      watchUpdate();
     });
-    return () => window.removeEventListener("beforeinstallprompt", listener);
+    return () => {
+      active = false;
+      registration?.removeEventListener("updatefound", watchUpdate);
+      installing?.removeEventListener("statechange", checkUpdate);
+      window.removeEventListener("beforeinstallprompt", listener);
+    };
   }, []);
   return (
     <section className="policy-box" style={{ marginTop: 25 }}>
