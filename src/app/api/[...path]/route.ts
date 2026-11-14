@@ -11,6 +11,8 @@ import {
   requireOrderCreator,
 } from "@/lib/admin-orders";
 import { prepareReorder } from "@/lib/order-reorder";
+import { googleAuthAvailable } from "@/lib/google-auth";
+import { safeAuthNext } from "@/lib/auth-redirect";
 import { customerOrder } from "@/lib/order-privacy";
 import { getOrderCard } from "@/lib/order-card";
 import {
@@ -390,6 +392,7 @@ async function route(req: NextRequest, context: Context) {
         rewardRules: (await getRewardRules()).rules.filter((r) => r.active),
         membershipTiers: (await getMembershipTiers()).filter((t) => t.active),
         sepayAvailable: (await getSepayConfig()).configured,
+        googleAuthAvailable: googleAuthAvailable(),
         realtimeTransport:
           process.env.VERCEL === "1" ? "websocket" : "socketio",
         vapidKey: process.env.VAPID_PUBLIC_KEY ?? "",
@@ -608,6 +611,7 @@ async function route(req: NextRequest, context: Context) {
         .object({
           name: z.string().trim().min(2).max(100),
           email: z.email().max(200),
+          next: z.string().optional(),
           password: z
             .string()
             .min(10, "Mật khẩu cần ít nhất 10 ký tự")
@@ -650,7 +654,7 @@ async function route(req: NextRequest, context: Context) {
       });
       const devLink = await sendAuthMail(
         created.email,
-        `${process.env.APP_URL}/auth/verify?token=${value}`,
+        `${process.env.APP_URL}/auth/verify?token=${value}&next=${encodeURIComponent(safeAuthNext(input.next))}`,
         "verify",
       );
       const response = json({

@@ -1,4 +1,5 @@
 import { getSepayConfig } from "@/lib/sepay-settings";
+import { googleAuthAvailable } from "@/lib/google-auth";
 import type { Metadata, Viewport } from "next";
 import "@fontsource/lora/400.css";
 import "@fontsource/lora/400-italic.css";
@@ -23,6 +24,7 @@ import "@/components/scrollbars.css";
 import "@/components/order-card.css";
 import "@/components/admin-order-details.css";
 import "@/components/card-assets.css";
+import "@/components/auth-enhancements.css";
 import { Shell } from "@/components/shell";
 import { AnalyticsConsent } from "@/components/analytics-consent";
 import { analyticsEnabled } from "@/lib/analytics";
@@ -93,6 +95,7 @@ export default async function RootLayout({
       rewardRules,
       membershipTiers: (await getMembershipTiers()).filter((t) => t.active),
       sepayAvailable: (await getSepayConfig()).configured,
+      googleAuthAvailable: googleAuthAvailable(),
       realtimeTransport: process.env.VERCEL === "1" ? "websocket" : "socketio",
       vapidKey: process.env.VAPID_PUBLIC_KEY ?? "",
     }),

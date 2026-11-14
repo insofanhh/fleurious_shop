@@ -23,6 +23,7 @@ export type Product = {
   variants: Variant[];
 };
 export type PublicUser = {
+  googleLinked?: boolean;
   id: string;
   name: string;
   email: string;
@@ -34,6 +35,7 @@ export type PublicUser = {
   birthDate?: string | null;
 };
 export type Bootstrap = {
+  googleAuthAvailable?: boolean;
   realtimeTransport?: "websocket" | "socketio";
   analyticsEnabled: boolean;
   rewardRules: import("./reward-rules").RewardRule[];

@@ -53,6 +53,9 @@ export async function fundWaitingRewards() {
   });
 }
 export async function ensureCleanupJob() {
+  await db.googleLoginAttempt.deleteMany({
+    where: { expiresAt: { lt: new Date() } },
+  });
   await db.jobRun.upsert({
     where: {
       id: `membership-maintenance:${Math.floor(Date.now() / 300000) * 5}`,

@@ -44,6 +44,7 @@ async function main() {
       "tests/sepay-settings.test.ts",
       "tests/flower-card.test.ts",
       "tests/cloud-schedule.test.ts",
+      "tests/google-auth.test.ts",
     ],
   ]) {
     const result = spawnSync(process.execPath, args, { stdio: "inherit", env });

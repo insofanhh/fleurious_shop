@@ -15,6 +15,7 @@ model User {
   name String
   phone String @default("")
   passwordHash String
+  googleSubject String? @unique @db.VarChar(255)
   role String @default("CUSTOMER")
   verified Boolean @default(false)
   disabled Boolean @default(false)
@@ -39,6 +40,18 @@ model User {
   addresses Address[]
   notifications Notification[]
   pushes PushSubscription[]
+}
+model GoogleLoginAttempt {
+  id String @id @db.VarChar(64)
+  browserHash String @db.VarChar(64)
+  verifierEncrypted String @db.Text
+  nonce String @db.VarChar(64)
+  nextPath String @db.VarChar(1024)
+  linkUserId String?
+  userId String?
+  status String @default("PENDING") @db.VarChar(20)
+  expiresAt DateTime
+  @@index([expiresAt])
 }
 model Session {
   id String @id

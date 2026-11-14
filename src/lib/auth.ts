@@ -33,6 +33,7 @@ export const publicUser = (u: {
   verified: boolean;
   memberSince: Date | null;
   tier: string;
+  googleSubject?: string | null;
 }) => ({
   id: u.id,
   name: u.name,
@@ -42,6 +43,7 @@ export const publicUser = (u: {
   verified: u.verified,
   memberSince: u.memberSince,
   tier: u.tier,
+  googleLinked: !!u.googleSubject,
 });
 export const staffRoles = [
   "OWNER",

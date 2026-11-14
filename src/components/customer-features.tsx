@@ -4,6 +4,9 @@ import { isOrderExpired } from "@/lib/order-expiry";
 import { useDeadline } from "./use-deadline";
 import { useCheckoutQuote } from "./use-checkout-quote";
 import { CardWritingChoice } from "./card-writing-choice";
+import { PasswordInput } from "./password-input";
+import { GoogleSignIn } from "./google-sign-in";
+import { safeAuthNext, googleAuthErrors } from "@/lib/auth-redirect";
 import { cardWritingLabels, type CardWritingMode } from "@/lib/card-design";
 import { PaymentQr } from "./payment-qr";
 import { NotificationInbox } from "./notification-center";
@@ -95,25 +98,39 @@ export function AuthPage({ mode }: { mode: string }) {
   const register = mode === "register",
     forgot = mode === "forgot",
     verify = mode === "verify",
-    reset = mode === "reset";
-  const titles = register
-    ? ["Bắt đầu một", "ngày có hoa."]
-    : forgot
-      ? ["Đừng lo,", "mình tìm lại nhé."]
-      : verify
-        ? ["Một bước nhỏ,", "để gần nhau hơn."]
-        : reset
-          ? ["Một khởi đầu", "thật an tâm."]
-          : ["Chào bạn,", "lại là một ngày đẹp."];
+    reset = mode === "reset",
+    googleMfa = mode === "google-mfa";
+  const nextPath = safeAuthNext(params.get("next"));
+  const oauthError = params.get("oauth_error");
+  const titles = googleMfa
+    ? ["Thêm một bước,", "để thật an tâm."]
+    : register
+      ? ["Bắt đầu một", "ngày có hoa."]
+      : forgot
+        ? ["Đừng lo,", "mình tìm lại nhé."]
+        : verify
+          ? ["Một bước nhỏ,", "để gần nhau hơn."]
+          : reset
+            ? ["Một khởi đầu", "thật an tâm."]
+            : ["Chào bạn,", "lại là một ngày đẹp."];
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setBusy(true);
     setError("");
     const fields = Object.fromEntries(new FormData(e.currentTarget));
     try {
-      const result = await request<{ message?: string; devLink?: string }>(
-        `auth/${register ? "register" : forgot ? "forgot" : verify ? "verify" : reset ? "reset" : "login"}`,
-        { ...fields, token: params.get("token") ?? "" },
+      const result = await request<{
+        message?: string;
+        devLink?: string;
+        next?: string;
+      }>(
+        `auth/${googleMfa ? "google/mfa" : register ? "register" : forgot ? "forgot" : verify ? "verify" : reset ? "reset" : "login"}`,
+        {
+          ...fields,
+          token: params.get("token") ?? "",
+          ticket: params.get("ticket") ?? "",
+          next: nextPath,
+        },
       );
       if (result.devLink) setDevLink(result.devLink);
       if (forgot || register)
@@ -127,13 +144,8 @@ export function AuthPage({ mode }: { mode: string }) {
               ? "Đã đổi mật khẩu. Vui lòng đăng nhập lại."
               : "Mừng bạn trở lại vườn hoa.",
         );
-        const next = params.get("next");
         router.push(
-          reset
-            ? "/auth/login"
-            : next?.startsWith("/") && !next.startsWith("//")
-              ? next
-              : "/account",
+          reset ? "/auth/login" : safeAuthNext(result.next ?? nextPath),
         );
         router.refresh();
       }
@@ -162,11 +174,13 @@ export function AuthPage({ mode }: { mode: string }) {
           <em>{titles[1]}</em>
         </h1>
         <p className="muted">
-          {register
-            ? "Tạo tài khoản để giữ lại những điều bạn thương."
-            : verify
-              ? "Xác nhận email để nhận quyền lợi hội viên và ngày có hoa."
-              : "Một chút hoa, một chút yêu, và một góc dành riêng cho bạn."}
+          {googleMfa
+            ? "Google đã được xác minh. Nhập mã 2FA hoặc mã dự phòng của Fleurious để hoàn tất đăng nhập."
+            : register
+              ? "Tạo tài khoản để giữ lại những điều bạn thương."
+              : verify
+                ? "Xác nhận email để nhận quyền lợi hội viên và ngày có hoa."
+                : "Một chút hoa, một chút yêu, và một góc dành riêng cho bạn."}
         </p>
         <form onSubmit={submit} className="form-stack">
           {register && (
@@ -181,7 +195,7 @@ export function AuthPage({ mode }: { mode: string }) {
               />
             </label>
           )}
-          {!verify && !reset && (
+          {!verify && !reset && !googleMfa && (
             <label>
               Email
               <input
@@ -193,12 +207,12 @@ export function AuthPage({ mode }: { mode: string }) {
               />
             </label>
           )}
-          {!forgot && !verify && (
+          {!forgot && !verify && !googleMfa && (
             <label>
               {reset ? "Mật khẩu mới" : "Mật khẩu"}
-              <input
+              <PasswordInput
                 name="password"
-                type="password"
+                aria-label={reset ? "Mật khẩu mới" : "Mật khẩu"}
                 required
                 minLength={register || reset ? 10 : 1}
                 maxLength={100}
@@ -211,20 +225,29 @@ export function AuthPage({ mode }: { mode: string }) {
               />
             </label>
           )}
-          {mode === "login" && (
+          {(mode === "login" || googleMfa) && (
             <label>
-              Mã 2FA / dự phòng (nếu đã bật)
+              {googleMfa
+                ? "Mã 2FA hoặc mã dự phòng"
+                : "Mã 2FA / dự phòng (nếu đã bật)"}
               <input
                 name="code"
                 autoComplete="one-time-code"
                 maxLength={30}
-                placeholder="Để trống nếu chưa bật 2FA"
+                required={googleMfa}
+                placeholder={
+                  googleMfa
+                    ? "Mã 6 số hoặc mã dự phòng"
+                    : "Để trống nếu chưa bật 2FA"
+                }
               />
             </label>
           )}
-          {error && (
+          {(error || oauthError) && (
             <div className="form-error" role="alert">
-              {error}
+              {error ||
+                googleAuthErrors[oauthError ?? ""] ||
+                googleAuthErrors.failed}
             </div>
           )}
           {message && (
@@ -240,31 +263,47 @@ export function AuthPage({ mode }: { mode: string }) {
           <button className="button glass-primary full" disabled={busy}>
             {busy
               ? "Đang xử lý…"
-              : register
-                ? "Tạo tài khoản"
-                : forgot
-                  ? "Gửi liên kết khôi phục"
-                  : verify
-                    ? "Xác minh email"
-                    : reset
-                      ? "Lưu mật khẩu mới"
-                      : "Đăng nhập"}
+              : googleMfa
+                ? "Xác nhận 2FA"
+                : register
+                  ? "Tạo tài khoản"
+                  : forgot
+                    ? "Gửi liên kết khôi phục"
+                    : verify
+                      ? "Xác minh email"
+                      : reset
+                        ? "Lưu mật khẩu mới"
+                        : "Đăng nhập"}
             <ArrowRight size={17} />
           </button>
         </form>
+        {(mode === "login" || register) && (
+          <>
+            <div className="auth-divider">hoặc</div>
+            <GoogleSignIn next={nextPath} />
+          </>
+        )}
+        {googleMfa && (
+          <p className="small muted">
+            <Link href={`/auth/login?next=${encodeURIComponent(nextPath)}`}>
+              Quay lại đăng nhập bằng mật khẩu
+            </Link>
+          </p>
+        )}
         {mode === "login" && (
           <div className="auth-links">
             <Link href="/auth/forgot">Quên mật khẩu?</Link>
-            <Link
-              href={`/auth/register?next=${encodeURIComponent(params.get("next") ?? "/account")}`}
-            >
+            <Link href={`/auth/register?next=${encodeURIComponent(nextPath)}`}>
               Tạo tài khoản <ArrowUpRight size={13} />
             </Link>
           </div>
         )}
         {register && (
           <p className="small muted">
-            Đã có tài khoản? <Link href="/auth/login">Đăng nhập</Link>
+            Đã có tài khoản?{" "}
+            <Link href={`/auth/login?next=${encodeURIComponent(nextPath)}`}>
+              Đăng nhập
+            </Link>
           </p>
         )}
       </div>
@@ -760,6 +799,23 @@ export function AccountPage({ section }: { section?: string }) {
       {section === "profile" && (
         <>
           <MfaCard />
+          <div className="google-account-card">
+            <h3>Đăng nhập Google</h3>
+            {user.googleLinked ? (
+              <p className="small muted">
+                Tài khoản đã liên kết với Google. Bạn có thể dùng Google cho
+                những lần đăng nhập tiếp theo.
+              </p>
+            ) : (
+              <>
+                <p className="small muted">
+                  Liên kết tài khoản Google có cùng email để giữ nguyên đơn
+                  hàng, quyền lợi và lịch hoa của bạn.
+                </p>
+                <GoogleSignIn link next="/account/profile" />
+              </>
+            )}
+          </div>
           <PwaCard />
         </>
       )}

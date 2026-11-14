@@ -1,0 +1,78 @@
+.password-input {
+  position: relative;
+  display: block;
+  width: 100%;
+}
+.password-input > input {
+  width: 100%;
+  padding-right: 48px;
+}
+.password-input > button {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--wine);
+  cursor: pointer;
+}
+.password-input > button:hover {
+  background: #6e142309;
+}
+.password-input > button:focus-visible {
+  outline: 2px solid var(--wine);
+  outline-offset: 1px;
+}
+.google-sign-in {
+  margin-top: 20px;
+}
+.google-sign-in > p {
+  margin: 9px 0 0;
+  text-align: center;
+}
+.google-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+.google-button svg {
+  flex-shrink: 0;
+}
+.google-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 20px 0 0;
+  font-size: 10px;
+  color: var(--muted);
+}
+.auth-divider::before,
+.auth-divider::after {
+  content: "";
+  height: 1px;
+  flex: 1;
+  background: var(--line);
+}
+.google-account-card {
+  max-width: 600px;
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  margin-block: 24px;
+}
+.google-account-card h3 {
+  font-family: var(--serif);
+  font-weight: 400;
+  margin-top: 0;
+}
