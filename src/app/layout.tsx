@@ -32,7 +32,9 @@ import { analyticsEnabled } from "@/lib/analytics";
 import { getRewardRules } from "@/lib/reward-rules";
 import type { Bootstrap } from "@/lib/types";
 import { getMembershipTiers } from "@/lib/membership";
+import { brandSocialMetadata } from "@/lib/social-metadata";
 export const metadata: Metadata = {
+  ...brandSocialMetadata(),
   metadataBase: new URL(process.env.APP_URL ?? "http://localhost:3000"),
   title: {
     default: "Fleurious — Những ngày có hoa",

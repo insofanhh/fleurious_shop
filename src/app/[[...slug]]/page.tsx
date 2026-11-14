@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { Storefront } from "@/components/storefront";
 import { db } from "@/lib/db";
 import type { Metadata } from "next";
+import { brandSocialMetadata, BRAND_DESCRIPTION } from "@/lib/social-metadata";
 type Props = { params: Promise<{ slug?: string[] }> };
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const slug = (await params).slug ?? [];
@@ -10,7 +11,10 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     return {
       title: product?.name ?? "Không tìm thấy",
       description: product?.subtitle,
-      openGraph: product ? { images: [product.image] } : undefined,
+      ...brandSocialMetadata(
+        `${product?.name ?? "Không tìm thấy"} · Fleurious`,
+        product?.subtitle || BRAND_DESCRIPTION,
+      ),
     };
   }
   const names: Record<string, string> = {
@@ -27,6 +31,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
   return {
     title: names[slug[0]],
+    ...brandSocialMetadata(
+      names[slug[0]] ? `${names[slug[0]]} · Fleurious` : undefined,
+    ),
     robots:
       [
         "notifications",
