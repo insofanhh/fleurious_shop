@@ -16,7 +16,6 @@ tmp/
 output/
 backups/
 docs/screenshots/
-*.sql
 
 .vercel
 .env*

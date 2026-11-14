@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE `Reward` ADD COLUMN `earnedDay` VARCHAR(191) NOT NULL DEFAULT '',
+    ADD COLUMN `threshold` INTEGER NOT NULL DEFAULT 5;

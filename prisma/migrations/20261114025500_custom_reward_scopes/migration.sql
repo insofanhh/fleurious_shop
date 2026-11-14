@@ -1,0 +1,4 @@
+-- AlterTable
+ALTER TABLE `Reward` ADD COLUMN `productId` VARCHAR(191) NULL,
+    ADD COLUMN `validDays` INTEGER NOT NULL DEFAULT 30,
+    MODIFY `title` VARCHAR(400) NOT NULL;
