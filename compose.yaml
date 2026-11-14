@@ -1,0 +1,60 @@
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: fleurious_shop
+      MYSQL_USER: fleurious
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD}
+      TZ: UTC
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      retries: 15
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+  web:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: mysql://fleurious:${MYSQL_PASSWORD}@mysql:3306/fleurious_shop
+      REDIS_URL: redis://redis:6379
+      QUEUE_DRIVER: redis
+      SOCKET_REDIS: "true"
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - uploads:/app/storage/uploads
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+  worker:
+    build: .
+    restart: unless-stopped
+    command: ["node", "--import", "tsx", "scripts/worker.ts"]
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: mysql://fleurious:${MYSQL_PASSWORD}@mysql:3306/fleurious_shop
+      REDIS_URL: redis://redis:6379
+      QUEUE_DRIVER: redis
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+volumes:
+  mysql-data:
+  redis-data:
+  uploads:

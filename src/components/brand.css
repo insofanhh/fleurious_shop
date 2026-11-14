@@ -1,0 +1,109 @@
+.brand-mark {
+  display: block;
+  flex-shrink: 0;
+}
+.wordmark > .brand-mark {
+  width: 32px;
+  height: 43px;
+}
+.closing-note > .brand-mark {
+  width: 43px;
+  height: 57px;
+}
+.brand-mark-drawing {
+  width: 84px;
+  height: 112px;
+  margin-bottom: 18px;
+  color: var(--wine);
+}
+.page-loading p {
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+.brand-draw-mask {
+  animation: brand-draw-cycle 1s ease-in-out infinite;
+}
+.brand-draw-stroke {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: 1s ease-in-out infinite;
+}
+.brand-draw-stem {
+  animation-name: brand-draw-stem;
+}
+.brand-draw-leaves {
+  animation-name: brand-draw-leaves;
+}
+.brand-draw-petals {
+  animation-name: brand-draw-petals;
+}
+.brand-draw-finish {
+  animation-name: brand-draw-finish;
+}
+@keyframes brand-draw-stem {
+  0%,
+  3% {
+    stroke-dashoffset: 1;
+  }
+  28%,
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes brand-draw-leaves {
+  0%,
+  17% {
+    stroke-dashoffset: 1;
+  }
+  49%,
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes brand-draw-petals {
+  0%,
+  37% {
+    stroke-dashoffset: 1;
+  }
+  72%,
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes brand-draw-finish {
+  0%,
+  60% {
+    stroke-dashoffset: 1;
+  }
+  81%,
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes brand-draw-cycle {
+  0%,
+  88% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@media (max-width: 700px) {
+  .wordmark > .brand-mark {
+    width: 27px;
+    height: 36px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .brand-draw-mask,
+  .brand-draw-stroke {
+    animation: none !important;
+  }
+  .brand-draw-mask {
+    opacity: 1;
+  }
+  .brand-draw-stroke {
+    stroke-dashoffset: 0;
+  }
+}

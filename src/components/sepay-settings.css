@@ -1,0 +1,177 @@
+.sepay-settings {
+  margin-bottom: 24px;
+  scroll-margin-top: 24px;
+}
+.sepay-panel-heading,
+.sepay-webhook-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 20px;
+}
+.sepay-panel-heading .eyebrow,
+.sepay-webhook-heading .eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 9px;
+}
+.sepay-panel-heading h2 {
+  margin: 12px 0 10px;
+}
+.sepay-panel-heading p {
+  max-width: 600px;
+}
+.sepay-panel-heading .status-tag {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.sepay-ready {
+  background: #e5ecdf;
+  color: #466451;
+}
+.sepay-enabled {
+  margin: 4px 0 23px;
+}
+.sepay-settings .two-columns {
+  align-items: start;
+  gap: 22px 24px;
+}
+.sepay-field {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+.sepay-field > label {
+  font-size: 11px;
+}
+.sepay-input-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--line);
+  background: #fffdf9;
+  border-radius: 11px;
+  padding-right: 6px;
+}
+.sepay-input-row:focus-within {
+  border-color: var(--wine);
+  box-shadow: 0 0 0 2px #6e142310;
+}
+.sepay-input-row input {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  border-radius: 11px;
+  box-shadow: none;
+  padding: 13px 12px;
+  font-size: 12px;
+}
+.sepay-input-row input:focus-visible {
+  outline: none;
+}
+.sepay-input-row input[readonly] {
+  color: #765e56;
+}
+.sepay-input-row button {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 34px;
+  border-radius: 8px;
+  color: var(--wine);
+  padding: 0;
+}
+.sepay-input-row button:hover:not(:disabled) {
+  background: #f4eade;
+}
+.sepay-field > small {
+  font-size: 10px;
+  line-height: 1.8;
+  color: var(--muted);
+}
+.sepay-save-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 24px;
+}
+.sepay-save-row .small {
+  font-size: 10px;
+}
+.sepay-webhook {
+  border-top: 1px solid var(--line);
+  margin-top: 28px;
+  padding-top: 28px;
+  display: grid;
+  gap: 22px;
+}
+.sepay-webhook-heading h3 {
+  margin: 10px 0 0;
+  font-size: 23px;
+}
+.sepay-webhook-heading .status-tag {
+  font-size: 9px;
+  white-space: nowrap;
+}
+.sepay-steps {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 11px;
+  line-height: 2;
+  color: var(--muted);
+}
+.sepay-steps li + li {
+  margin-top: 6px;
+}
+.sepay-key-actions {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+}
+.sepay-key-actions .text-link {
+  font-size: 11px;
+}
+.sepay-rotate-confirm {
+  border: 1px solid #d6b498;
+  border-radius: 12px;
+  padding: 18px;
+  background: #f4eade80;
+}
+.sepay-rotate-confirm p {
+  font-size: 11px;
+}
+.sepay-rotate-confirm > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.sepay-settings .form-error {
+  margin-top: 18px;
+}
+@media (max-width: 700px) {
+  .sepay-panel-heading,
+  .sepay-webhook-heading {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .sepay-settings .two-columns {
+    grid-template-columns: 1fr;
+  }
+  .sepay-key-actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .sepay-input-row input {
+    font-size: 16px;
+  }
+  .sepay-rotate-confirm .button {
+    width: 100%;
+  }
+}

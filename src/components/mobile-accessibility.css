@@ -1,0 +1,25 @@
+@media (max-width: 700px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+  .bottom-nav a {
+    color: #7b5c52;
+  }
+  .filter-panel {
+    max-width: 100%;
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .glass,
+  .header,
+  .bottom-nav {
+    backdrop-filter: none;
+    background: #f4eade;
+  }
+  .glass-primary {
+    backdrop-filter: none;
+    background: #6e1423;
+  }
+}

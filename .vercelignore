@@ -1,0 +1,13 @@
+node_modules
+.next
+.git
+.env
+.env.*
+.local-access.txt
+tmp
+backups
+output
+docs/screenshots
+test-results
+*.log
+tsconfig.tsbuildinfo

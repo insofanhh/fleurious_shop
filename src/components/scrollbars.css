@@ -1,0 +1,63 @@
+:root {
+  --scrollbar-track: #f4eade;
+  --scrollbar-thumb: #b18b86;
+  --scrollbar-thumb-hover: #8e4e56;
+  --scrollbar-thumb-active: #6e1423;
+}
+
+.admin-sidebar {
+  --scrollbar-track: #551420;
+  --scrollbar-thumb: #ae7d7d;
+  --scrollbar-thumb-hover: #d3aaa0;
+  --scrollbar-thumb-active: #f4eade;
+}
+
+/* Keep the platform's high-contrast scrollbars when forced colors are enabled. */
+@media (forced-colors: none) {
+  /* Firefox uses the standard properties; Chromium/WebKit use the rounded skin. */
+  @supports not selector(::-webkit-scrollbar) {
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+    }
+  }
+
+  @supports selector(::-webkit-scrollbar) {
+    *::-webkit-scrollbar {
+      width: 10px;
+      height: 10px;
+      background: var(--scrollbar-track);
+    }
+
+    *::-webkit-scrollbar-track {
+      background: var(--scrollbar-track);
+      border-radius: 999px;
+    }
+
+    *::-webkit-scrollbar-thumb {
+      min-width: 36px;
+      min-height: 36px;
+      border: 2px solid var(--scrollbar-track);
+      border-radius: 999px;
+      background: var(--scrollbar-thumb);
+    }
+
+    *::-webkit-scrollbar-thumb:hover {
+      background: var(--scrollbar-thumb-hover);
+    }
+
+    *::-webkit-scrollbar-thumb:active {
+      background: var(--scrollbar-thumb-active);
+    }
+
+    *::-webkit-scrollbar-button {
+      display: none;
+      width: 0;
+      height: 0;
+    }
+
+    *::-webkit-scrollbar-corner {
+      background: var(--scrollbar-track);
+    }
+  }
+}

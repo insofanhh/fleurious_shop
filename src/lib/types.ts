@@ -1,0 +1,167 @@
+export type Variant = {
+  id: string;
+  name: string;
+  sku: string;
+  price: number;
+  stock: number;
+  reserved: number;
+};
+export type Product = {
+  id: string;
+  slug: string;
+  name: string;
+  subtitle: string;
+  description: string;
+  category: string;
+  occasion: string;
+  color: string;
+  image: string;
+  images: string[];
+  badge: string;
+  featured: boolean;
+  active: boolean;
+  variants: Variant[];
+};
+export type PublicUser = {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  role: string;
+  verified: boolean;
+  memberSince: string | null;
+  tier: string;
+  birthDate?: string | null;
+};
+export type Bootstrap = {
+  realtimeTransport?: "websocket" | "socketio";
+  analyticsEnabled: boolean;
+  rewardRules: import("./reward-rules").RewardRule[];
+  membershipTiers: import("./membership-types").MembershipTierView[];
+  taxonomies: {
+    id: string;
+    kind: string;
+    name: string;
+    slug: string;
+    description: string;
+    image: string;
+    productIds: string[];
+    active: boolean;
+  }[];
+  products: Product[];
+  zones: { id: string; name: string; fee: number }[];
+  slots: {
+    id: string;
+    label: string;
+    startHour: number;
+    endHour: number;
+    capacity: number;
+  }[];
+  settings: import("./settings").ShopSettings;
+  content: {
+    id: string;
+    slug: string;
+    title: string;
+    body: string;
+    image: string;
+    kind: string;
+  }[];
+  sepayAvailable: boolean;
+  vapidKey: string;
+};
+export type CartItem = { variantId: string; quantity: number };
+export type ActiveDay = {
+  id: string;
+  day: string;
+  image: string;
+  productName: string;
+  valid: boolean;
+  createdAt: string;
+};
+export type Reward = {
+  id: string;
+  title: string;
+  percent: number;
+  cap: number;
+  minimum: number;
+  status: string;
+  expiresAt: string;
+};
+export type Order = {
+  source?: import("./order-channels").OrderChannel;
+  expiredAt?: string | null;
+  serverNow?: string;
+  refundPendingAmount?: number;
+  refundedAmount?: number;
+  netPaid?: number;
+  assignee?: string;
+  id: string;
+  code: string;
+  buyerName: string;
+  buyerEmail: string;
+  recipientName: string;
+  recipientPhone: string;
+  address: string;
+  deliveryDay: string;
+  slotLabel: string;
+  deliveryStart?: string | null;
+  deliveryEnd?: string | null;
+  total: number;
+  subtotal: number;
+  discount: number;
+  deliveryFee: number;
+  discountLabel: string;
+  paymentStatus: string;
+  paymentMethod: string;
+  status: string;
+  fulfillment: string;
+  version: number;
+  createdAt: string;
+  expiresAt: string;
+  cardMessage: string;
+  cardWritingMode?: import("./card-design").CardWritingMode;
+  note: string;
+  items: {
+    variantId: string;
+    id: string;
+    image: string;
+    name: string;
+    quantity: number;
+    price: number;
+    variantName: string;
+  }[];
+  history?: { id: string; text: string; createdAt: string }[];
+  paymentQr?: string;
+  accountNumber?: string;
+  accountName?: string;
+  bank?: string;
+};
+export type Me = {
+  membership: import("./membership-types").MembershipSummary;
+  user: PublicUser;
+  orders: Order[];
+  period: { limit: number; reserved: number; consumed: number } | null;
+  days: ActiveDay[];
+  stats: {
+    current: number;
+    longest: number;
+    monthly: number;
+    todayActive: boolean;
+  };
+  rewards: Reward[];
+  favorites: { productId: string }[];
+  addresses: {
+    id: string;
+    name: string;
+    phone: string;
+    address: string;
+    zoneId: string;
+  }[];
+  notifications: {
+    id: string;
+    title: string;
+    body: string;
+    url: string;
+    read: boolean;
+  }[];
+};
