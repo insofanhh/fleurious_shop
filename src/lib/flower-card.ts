@@ -203,6 +203,7 @@ export async function renderFlowerCard(card: FlowerCard, side: CardFace) {
       ${lettering("“Giữ lại một", f.serif, 4, 6.5, 27, cream)}
       ${lettering("ngày có hoa.”", f.italic, 4, 6.5, 34, cream)}
       ${qr(card.qrUrl, 51, 8)}
+      ${lettering("Quét mã giữ chuỗi & nhận ưu đãi", f.sans, 1.8, 86, 46, wine, "right")}
     `,
     );
   }
