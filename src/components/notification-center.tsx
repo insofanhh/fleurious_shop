@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { request, useShop } from "./shop-provider";
 import { humanDate } from "@/lib/time";
+import { DevicePushButton } from "./device-push-button";
 
 type Notice = {
   id: string;
@@ -332,38 +333,7 @@ export function NotificationInbox({
   embedded?: boolean;
 }) {
   const { admin } = useInbox();
-  const { user, toast, vapidKey } = useShop();
-  const [busy, setBusy] = useState(false);
-  async function push() {
-    setBusy(true);
-    try {
-      if (
-        !vapidKey ||
-        !("PushManager" in window) ||
-        !("serviceWorker" in navigator)
-      )
-        throw new Error(
-          "Thông báo đẩy chưa được hỗ trợ hoặc cấu hình. Bạn vẫn nhận cập nhật realtime tại đây.",
-        );
-      const granted = await Notification.requestPermission();
-      if (granted !== "granted")
-        return toast(
-          "Bạn có thể bật quyền thông báo trong cài đặt trình duyệt.",
-        );
-      const registration = await navigator.serviceWorker.ready;
-      const raw = atob(vapidKey.replace(/-/g, "+").replace(/_/g, "/"));
-      const subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: Uint8Array.from(raw, (c) => c.charCodeAt(0)),
-      });
-      await request("me/push", subscription.toJSON());
-      toast("Đã bật thông báo trên thiết bị này.");
-    } catch (e) {
-      toast((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
+  const { user } = useShop();
   const content = (
     <>
       <div className="inbox-page-heading">
@@ -378,11 +348,7 @@ export function NotificationInbox({
               : "Theo dõi đơn hoa, đặc quyền hội viên và những món quà dành cho bạn."}
           </p>
         </div>
-        {user && (
-          <button className="button secondary" disabled={busy} onClick={push}>
-            <Bell size={17} /> Bật thông báo thiết bị
-          </button>
-        )}
+        {user && <DevicePushButton />}
       </div>
       <NotificationList />
     </>

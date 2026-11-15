@@ -1,4 +1,5 @@
 import { getSepayConfig } from "@/lib/sepay-settings";
+import { getPushPublicKey } from "@/lib/push-config";
 import { PwaViewport } from "@/components/pwa-viewport";
 import { googleAuthAvailable } from "@/lib/google-auth";
 import type { Metadata, Viewport } from "next";
@@ -26,6 +27,7 @@ import "@/components/order-card.css";
 import "@/components/admin-order-details.css";
 import "@/components/card-assets.css";
 import "@/components/auth-enhancements.css";
+import "@/components/ui/date-input.css";
 import { Shell } from "@/components/shell";
 import { AnalyticsConsent } from "@/components/analytics-consent";
 import { analyticsEnabled } from "@/lib/analytics";
@@ -100,7 +102,7 @@ export default async function RootLayout({
       sepayAvailable: (await getSepayConfig()).configured,
       googleAuthAvailable: googleAuthAvailable(),
       realtimeTransport: process.env.VERCEL === "1" ? "websocket" : "socketio",
-      vapidKey: process.env.VAPID_PUBLIC_KEY ?? "",
+      vapidKey: getPushPublicKey(),
     }),
   ) as Bootstrap;
   return (

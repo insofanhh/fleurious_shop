@@ -78,6 +78,7 @@ import {
   recordMembershipRefund,
 } from "@/lib/membership";
 import { notificationScope } from "@/lib/notifications";
+import { getPushPublicKey } from "@/lib/push-config";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -395,7 +396,7 @@ async function route(req: NextRequest, context: Context) {
         googleAuthAvailable: googleAuthAvailable(),
         realtimeTransport:
           process.env.VERCEL === "1" ? "websocket" : "socketio",
-        vapidKey: process.env.VAPID_PUBLIC_KEY ?? "",
+        vapidKey: getPushPublicKey(),
       });
     }
     if (action === "reviews" && method === "GET")
@@ -1157,6 +1158,8 @@ async function route(req: NextRequest, context: Context) {
     }
     if (action === "me/push" && method === "POST") {
       const u = requireUser();
+      if (!getPushPublicKey())
+        fail("PUSH_UNAVAILABLE", "Cửa hàng chưa hoàn tất thiết lập thông báo thiết bị.", 503);
       const input = z
         .object({
           endpoint: z.url().startsWith("https://"),

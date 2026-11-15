@@ -7,6 +7,7 @@ import { getSettings } from "./settings";
 import { atomic } from "./commerce";
 import { membershipMaintenance } from "./membership";
 import { reconcileSepay } from "./sepay-reconcile";
+import { getPushConfig } from "./push-config";
 export async function fundWaitingRewards() {
   const settings = await getSettings();
   await atomic(async (tx) => {
@@ -228,11 +229,12 @@ export async function processJobs(onlyId?: string) {
   }
 }
 export async function sendPush(userId: string, event: string, admin = false) {
-  if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) return;
+  const config = getPushConfig();
+  if (!config) return;
   webpush.setVapidDetails(
-    process.env.VAPID_SUBJECT ?? "mailto:hello@example.com",
-    process.env.VAPID_PUBLIC_KEY,
-    process.env.VAPID_PRIVATE_KEY,
+    config.subject,
+    config.publicKey,
+    config.privateKey,
   );
   const subscriptions = await db.pushSubscription.findMany({
     where: { userId },

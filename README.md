@@ -126,7 +126,7 @@ GA4 API trả 2xx chưa đủ chứng minh property đã ghi nhận đúng; cầ
 
 Bật 2FA tại Tài khoản → Hồ sơ. Khóa TOTP được mã hóa, mã dự phòng chỉ lưu hash và dùng một lần. OTP đã dùng không thể replay. Mã dự phòng được hiển thị một lần sau khi bật; các phiên đăng nhập khác bị thu hồi.
 
-Tạo VAPID bằng `web-push.generateVAPIDKeys()` trong môi trường quản trị và đặt `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`. Không commit khóa riêng. Quyền push chỉ xin sau khi người dùng nhấn nút bật cập nhật.
+Chạy `npm run push:setup` để tạo cặp VAPID trong `.env.local`, hoặc `npm run push:setup -- .env.local .env.deploy.local` để dùng chung cặp khóa khi triển khai. Script giữ nguyên khóa đã có, từ chối ghi đè các cặp không khớp và không in khóa riêng. Đặt `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` trong môi trường chạy; trên Vercel lưu khóa riêng dưới dạng Secret và redeploy. Không commit các file env. Quyền push chỉ xin trực tiếp khi người dùng nhấn nút bật. Trên iPhone/iPad, cần iOS/iPadOS 16.4 trở lên và mở Fleurious từ Màn hình chính. Xem [hướng dẫn thông báo thiết bị](docs/NAVIGATION_NOTIFICATIONS.vi.md#thông-báo-thiết-bị).
 
 ## cron-job.org và worker
 

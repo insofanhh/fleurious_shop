@@ -10,9 +10,9 @@
   --sans: "Be Vietnam Pro", sans-serif;
   --success: #466451;
   --radius: 16px;
-  --mobile-safe-bottom: env(safe-area-inset-bottom, 0px);
   --mobile-nav-height: 64px;
-  --mobile-nav-bottom: calc(12px + var(--mobile-safe-bottom));
+  --mobile-nav-gutter: 15px;
+  --mobile-nav-bottom: var(--mobile-nav-gutter);
 }
 .wordmark > .wordmark-name {
   margin-left: 0 !important;
@@ -3563,8 +3563,8 @@ textarea {
     display: flex !important;
     position: fixed;
     bottom: var(--mobile-nav-bottom);
-    left: 15px;
-    right: 15px;
+    left: var(--mobile-nav-gutter);
+    right: var(--mobile-nav-gutter);
     z-index: 50;
     justify-content: space-around;
     height: var(--mobile-nav-height);

@@ -41,6 +41,8 @@ async function main() {
       "tests/commerce.test.ts",
       "tests/membership.test.ts",
       "tests/notifications.test.ts",
+      "tests/push-client.test.ts",
+      "tests/push-config.test.ts",
       "tests/sepay-settings.test.ts",
       "tests/flower-card.test.ts",
       "tests/cloud-schedule.test.ts",

@@ -15,6 +15,15 @@ Các cảnh báo SePay cần đối soát, hoàn phí hội viên chờ xử lý
 
 Khách nhận cập nhật đơn, xác nhận thanh toán SePay, hội viên, thưởng và các nhắc lịch đã có. Đăng ký thông báo thiết bị vẫn cần VAPID/PWA và quyền trình duyệt; cập nhật trong website dùng WebSocket độc lập.
 
+## Thông báo thiết bị
+
+- Cần HTTPS, service worker và cặp VAPID public/private khớp nhau. Thiếu khóa riêng hoặc khóa không khớp thì không mời thiết bị đăng ký bằng một cấu hình không gửi được thông báo.
+- Tạo khóa bằng `npm run push:setup`; các file env được gitignore. Giữ nguyên cặp khóa khi deploy lại, không tạo cặp mới cho mỗi lần build. Thêm cả ba biến `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` vào Production trên Vercel, lưu khóa riêng dưới dạng Secret rồi redeploy.
+- iPhone/iPad: Chia sẻ → Thêm vào Màn hình chính → mở biểu tượng Fleurious → Thông báo → Bật thông báo thiết bị → Cho phép. Cần iOS/iPadOS 16.4 trở lên, theo [WebKit](https://webkit.org/blog/13878/web-push-for-web-apps-on-ios-and-ipados/). Trong tab trình duyệt, giao diện hướng dẫn cài PWA thay vì báo lỗi chung.
+- Quyền bị từ chối, trình duyệt không hỗ trợ, thiếu HTTPS và thiếu cấu hình có hướng dẫn riêng. Sau khi đổi quyền trong cài đặt, quay lại ứng dụng để kiểm tra lại.
+- Nút chỉ hiển thị đã bật sau khi đăng ký thiết bị được lưu thành công trên server. Thử lại tái sử dụng đăng ký còn hợp lệ; đăng ký bằng khóa VAPID cũ được thay thế trong thao tác bật. Thiết bị đã bật được đồng bộ với tài khoản hiện đang đăng nhập.
+- `npm run test:push` kiểm tra yêu cầu quyền ngay trong thao tác bấm, iPhone/iPad, từ chối quyền, thử lại, đổi khóa và chữ ký VAPID. Trình giả lập không xác nhận được việc APNs giao thông báo tới iPhone thật; cần kiểm tra bước đó trên thiết bị.
+
 ## Camera giữ chuỗi
 
 Nút camera nổi ở góc phải trang `/streak`, phía trên thanh điều hướng mobile. Camera ưu tiên ống kính sau; có lựa chọn ảnh QR và dán liên kết. Đóng hộp thoại, chuyển trang hoặc đưa trang về nền sẽ dừng camera.
