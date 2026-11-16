@@ -8,6 +8,7 @@
     "start": "cross-env NODE_ENV=production tsx server.ts",
     "typecheck": "tsc --noEmit",
     "test": "tsx scripts/test.ts",
+    "test:http": "npm run build && cross-env HTTP_STATUS_TEST=1 npm test",
     "test:push": "node --import tsx --test tests/push-client.test.ts tests/push-config.test.ts",
     "push:setup": "tsx scripts/setup-push.ts",
     "db:generate": "prisma generate",

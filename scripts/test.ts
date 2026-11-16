@@ -40,6 +40,7 @@ async function main() {
       "tests/rules.test.ts",
       "tests/masonry.test.ts",
       "tests/page-metadata.test.ts",
+      "tests/http-status.test.ts",
       "tests/order-journey.test.ts",
       "tests/catalog-admin.test.ts",
       "tests/catalog-image.test.ts",

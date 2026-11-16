@@ -1,6 +1,6 @@
 import { AnimatedBrandMark } from "@/components/brand-mark";
 
-export default function Loading() {
+export default function PageLoading() {
   return (
     <div
       className="page-loading"

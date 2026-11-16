@@ -1,98 +1,21 @@
 import { notFound } from "next/navigation";
 import { Storefront } from "@/components/storefront";
-import { db } from "@/lib/db";
 import type { Metadata } from "next";
-import { publicPageMetadata, pageTitles } from "@/lib/page-metadata";
+import { publicPageMetadata } from "@/lib/page-metadata";
+import { resolveStorefrontRoute } from "@/lib/storefront-route";
 type Props = { params: Promise<{ slug?: string[] }> };
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const slug = (await params).slug ?? [];
-  if (slug[0] === "flowers" && slug[1]) {
-    const product = await db.product.findFirst({
-      where: { slug: slug[1], active: true },
-    });
-    return publicPageMetadata(slug, {
-      title: product?.name ?? "Không tìm thấy",
-      description: product?.subtitle,
-    });
-  }
-  if (slug[0] === "collections" && slug[1]) {
-    const taxonomy = await db.taxonomy.findFirst({
-      where: { slug: slug[1], active: true },
-      select: { name: true },
-    });
-    return publicPageMetadata(
-      slug,
-      taxonomy ? { title: `Hoa ${taxonomy.name}` } : undefined,
-    );
-  }
-  if (
-    slug[0] &&
-    (["about", "delivery", "returns", "privacy", "cham-hoa"].includes(
-      slug[0],
-    ) ||
-      !pageTitles[slug[0]])
-  ) {
-    const content = await db.content.findFirst({
-      where: { slug: slug[0], active: true, kind: { in: ["page", "article"] } },
-      select: { title: true, body: true },
-    });
-    if (content)
-      return publicPageMetadata(slug, {
-        title: content.title,
-        description: content.body,
-      });
-  }
-  return publicPageMetadata(slug);
+  const route = await resolveStorefrontRoute(slug);
+  if (!route)
+    return { title: "Không tìm thấy", robots: { index: false, follow: false } };
+  return publicPageMetadata(slug, route.metadata);
 }
 export default async function Page({ params }: Props) {
   const segments = (await params).slug ?? [];
-  const allowed = [
-    "flowers",
-    "collections",
-    "membership",
-    "streak",
-    "cart",
-    "checkout",
-    "account",
-    "notifications",
-    "auth",
-    "orders",
-    "track-order",
-    "q",
-    "about",
-    "delivery",
-    "returns",
-    "privacy",
-    "cham-hoa",
-    "favorites",
-  ];
-  if (
-    segments[0] &&
-    !allowed.includes(segments[0]) &&
-    !(await db.content.findFirst({
-      where: {
-        slug: segments[0],
-        active: true,
-        kind: { in: ["page", "article"] },
-      },
-    }))
-  )
-    notFound();
-  if (
-    segments[0] === "flowers" &&
-    segments[1] &&
-    !(await db.product.findFirst({
-      where: { slug: segments[1], active: true },
-    }))
-  )
-    notFound();
-  const product =
-    segments[0] === "flowers" && segments[1]
-      ? await db.product.findUnique({
-          where: { slug: segments[1] },
-          include: { variants: true },
-        })
-      : null;
+  const route = await resolveStorefrontRoute(segments);
+  if (!route) notFound();
+  const product = route.product;
   return (
     <>
       {product && (

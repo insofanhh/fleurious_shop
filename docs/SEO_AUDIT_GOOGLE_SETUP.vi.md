@@ -4,7 +4,13 @@ Ngày kiểm tra: 16/11/2026. Website: https://fleurious-shop.vercel.app/.
 
 Phạm vi: kiểm tra production, đối chiếu mã nguồn và tài liệu Google. Đây là báo cáo và kế hoạch cải thiện; chưa sửa mã nguồn ứng dụng, chưa deploy hoặc thao tác tài khoản Google Search Console/Business Profile trong lượt này.
 
-## Cập nhật bản sửa local — 16/11/2026
+## Cập nhật HTTP 404 local — 16/11/2026
+
+Đã sửa URL công khai không tồn tại trả HTTP 404 trước khi streaming bắt đầu: kiểm tra route tại layout nằm ngoài loading, dùng chung bộ xác định route giữa layout/metadata/page. Các tài nguyên chưa cung cấp như llms.txt/ARD, sản phẩm/bài viết ẩn, collection sai và đoạn đường dẫn dư trả 404; trang và tài nguyên hợp lệ vẫn hoạt động.
+
+`npm run test:http` thành công với build/TypeScript và 184 ca kiểm thử, gồm kiểm tra HTTP trên production build local. Kiểm tra trình duyệt 390/1350 px không có lỗi JavaScript, điều hướng client hoạt động, CLS local dưới 0,002. Chưa push/deploy bản sửa HTTP này; chưa có số đo production mới. Chi tiết tại [phân tích và kế hoạch tài nguyên agent](AGENT_DISCOVERY_PLAN.vi.md).
+
+## Cập nhật bản sửa title/CLS local — 16/11/2026
 
 Sau khi người dùng phản ánh PageSpeed vẫn thiếu title, đã triển khai hai hạng mục P0 ở local:
 
@@ -13,7 +19,7 @@ Sau khi người dùng phản ánh PageSpeed vẫn thiếu title, đã triển k
 
 Xác minh trên production build local với database kiểm thử tách biệt: 3 ca hồi quy metadata đạt; typecheck/build thành công; title có trong HTML của 8 trang mẫu và cập nhật khi chuyển trang; không ghi nhận lỗi JavaScript trong hai viewport 1350/390 px. Lighthouse desktop local cho SEO 100 và CLS khoảng 0,0021. Điểm Performance local là 95 nhưng không so trực tiếp với production 78 vì khác môi trường mạng/dữ liệu.
 
-Đây chưa phải kết quả đo lại production. Các phần canonical, soft 404, llms/ARD, ảnh responsive và những hạng mục khác trong báo cáo dưới đây chưa được triển khai bởi bản sửa này. Các số liệu ở mục 1 là baseline production trước sửa.
+Đây chưa phải kết quả đo lại production. Bản sửa title/CLS không triển khai canonical, soft 404, llms/ARD hoặc ảnh responsive; phần HTTP 404 được cập nhật riêng ở mục trên. Các số liệu ở mục 1 là baseline production trước sửa.
 
 ## 1. Kết quả kiểm tra thật
 

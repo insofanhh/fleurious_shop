@@ -153,11 +153,15 @@ Khi scale nhiều gateway, đặt `SOCKET_REDIS=true` và cùng `REDIS_URL` đ�
 npm test
 npm run typecheck
 npm run build
+# Build và kiểm tra HTTP 200/404 bằng server kiểm thử riêng:
+npm run test:http
 # Khi server localhost đang chạy:
 npm run test:e2e
 ```
 
 `npm test` tự tạo/migrate database có hậu tố `_test`. Có thể chỉ định `TEST_DATABASE_URL`; script từ chối tên không có hậu tố này. Kiểm tra timezone, chuỗi, crypto, cạnh tranh quota/kho/slot/QR, cấp thưởng, hồi ngân sách, hủy, webhook, idempotency và 2FA. Không phát sinh tiền thật.
+
+`npm run test:http` build ứng dụng rồi chạy bộ kiểm thử kèm các ca HTTP trên production build local. Server Next chạy ở cổng trống tự chọn, dùng database `_test` và tự dừng sau kiểm thử. Các ca này kiểm tra tài nguyên vắng mặt, sản phẩm/danh mục/bài viết ẩn, URL có đoạn dư, metadata và các trang/tài nguyên hợp lệ; không cần dừng server local đang dùng.
 
 `test:e2e` hiện là HTTP smoke cho trang/API, CSRF, đăng nhập và quyền admin; không phải một bộ Playwright UI tự động đầy đủ. Giao diện mobile được kiểm tra trực tiếp trên trình duyệt trong lượt phát triển này.
 
