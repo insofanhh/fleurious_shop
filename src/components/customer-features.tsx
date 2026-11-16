@@ -1306,6 +1306,7 @@ export function CheckoutPage() {
           ) : null}
           <AddressAutocomplete
             value={deliveryAddress}
+            showDataNote={false}
             onChange={(value) => {
               ++savedAddressEpoch.current;
               setDeliveryAddress(value);

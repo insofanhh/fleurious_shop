@@ -20,6 +20,7 @@ export function AddressAutocomplete({
   enabled = true,
   requireSelection = false,
   required = true,
+  showDataNote = true,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -30,6 +31,7 @@ export function AddressAutocomplete({
   enabled?: boolean;
   requireSelection?: boolean;
   required?: boolean;
+  showDataNote?: boolean;
 }) {
   const id = useId(),
     input = useRef<HTMLInputElement>(null),
@@ -227,7 +229,7 @@ export function AddressAutocomplete({
       {selection && (
         <small className="address-confirmed">Đã xác nhận địa điểm giao.</small>
       )}
-      {enabled && (
+      {enabled && showDataNote && (
         <small className="address-data-note">
           Địa chỉ tìm kiếm được gửi tới Goong để xác định vị trí.
         </small>
