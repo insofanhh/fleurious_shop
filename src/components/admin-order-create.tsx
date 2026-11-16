@@ -2,6 +2,10 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Plus, Trash2, X } from "lucide-react";
 import { request, useShop } from "./shop-provider";
+import { AddressAutocomplete } from "./ui/address-autocomplete";
+import { ShippingSummary } from "./shipping-summary";
+import { useShippingQuote } from "./use-shipping-quote";
+import type { AddressSelection } from "@/lib/shipping-types";
 import { Select } from "./ui/select";
 import { initialOrderStages, orderChannels } from "@/lib/order-channels";
 import { dayKey, money, shiftDay } from "@/lib/time";
@@ -27,9 +31,38 @@ export function AdminOrderCreate({
   onSaved,
 }: {
   onClose: () => void;
-  onSaved: (order: { id: string; code: string }) => Promise<void>;
+  onSaved: (order: {
+    id: string;
+    code: string;
+    paymentMethod: string;
+    paymentStatus: string;
+  }) => Promise<void>;
 }) {
-  const { products, zones, slots, sepayAvailable, settings } = useShop();
+  const { products, slots, sepayAvailable, settings, shipping } = useShop();
+  const [deliveryAddress, setDeliveryAddress] = useState(""),
+    [deliveryPoint, setDeliveryPoint] = useState<AddressSelection | null>(null),
+    [addressDetails, setAddressDetails] = useState("");
+  const [manualShipping, setManualShipping] = useState(false),
+    [manualFee, setManualFee] = useState(""),
+    [shippingReason, setShippingReason] = useState("");
+  const ship = useShippingQuote(
+    deliveryPoint?.id,
+    !manualShipping,
+    shipping?.version ?? 0,
+  );
+  const referenceQuote = useRef<{
+    id: string;
+    locationId: string;
+    version: number;
+  } | null>(null);
+  useEffect(() => {
+    if (ship.quote && deliveryPoint)
+      referenceQuote.current = {
+        id: ship.quote.id,
+        locationId: deliveryPoint.id,
+        version: shipping?.version ?? 0,
+      };
+  }, [ship.quote, deliveryPoint, shipping?.version]);
   const dialog = useRef<HTMLDialogElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const [key] = useState(() => crypto.randomUUID());
@@ -46,6 +79,16 @@ export function AdminOrderCreate({
   const [quoted, setQuoted] = useState<Quote | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [quoteError, setQuoteError] = useState("");
+  const [quotePending, setQuotePending] = useState(false);
+  const [formVersion, setFormVersion] = useState(0);
+  const quoteEpoch = useRef(0);
+  const [paymentHours, setPaymentHours] = useState(
+    String(settings.manualPaymentHours || 24),
+  );
+  const [noPaymentLimit, setNoPaymentLimit] = useState(
+    settings.manualPaymentHours === 0,
+  );
   const [cardWritingMode, setCardWritingMode] =
     useState<CardWritingMode>("AUTO");
   const selected = customers.find((c) => c.id === customerId);
@@ -79,10 +122,6 @@ export function AdminOrderCreate({
     };
   }, [search, customerId]);
   useEffect(() => {
-    if (payment !== "PAID" && (method === "SEPAY" || stage === "DELIVERED"))
-      setStage("PENDING");
-  }, [method, payment, stage]);
-  useEffect(() => {
     if (stage === "DELIVERED" && formRef.current) {
       (
         formRef.current.elements.namedItem("deliveryDay") as HTMLInputElement
@@ -94,6 +133,22 @@ export function AdminOrderCreate({
     const form = new FormData(formRef.current!);
     return {
       ...Object.fromEntries(form),
+      zoneId: null,
+      address: deliveryAddress,
+      locationId: deliveryPoint?.id,
+      shippingQuoteId:
+        ship.quote?.id ??
+        (manualShipping &&
+        referenceQuote.current?.locationId === deliveryPoint?.id &&
+        referenceQuote.current?.version === shipping?.version
+          ? referenceQuote.current?.id
+          : undefined),
+      addressDetails,
+      manualShipping: manualShipping
+        ? { fee: Number(manualFee), reason: shippingReason }
+        : undefined,
+      deliveryDay: String(form.get("deliveryDay") ?? ""),
+      slotId: String(form.get("slotId") ?? ""),
       customerId: customerId || undefined,
       items: items.map((i) => ({
         variantId: i.variantId,
@@ -108,34 +163,88 @@ export function AdminOrderCreate({
       idempotencyKey: key,
       expectedTotal: quoted?.total,
       cardWritingMode,
+      paymentTermMinutes: noPaymentLimit
+        ? null
+        : Math.round(Number(paymentHours) * 60),
     };
   }
-  async function check() {
-    if (!formRef.current?.reportValidity()) return;
-    setBusy(true);
-    setError("");
-    try {
-      setQuoted(await request<Quote>("admin/orders/quote", payload()));
-    } catch (e) {
-      setQuoted(null);
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
+  useEffect(() => {
+    const epoch = ++quoteEpoch.current;
+    setQuoted(null);
+    setQuoteError("");
+    const input = payload();
+    if (
+      !input.items.length ||
+      input.items.some(
+        (i) => !i.variantId || !Number.isInteger(i.quantity) || i.quantity < 1,
+      ) ||
+      (!manualShipping && !ship.quote) ||
+      (manualShipping &&
+        (manualFee === "" ||
+          shippingReason.trim().length < 4 ||
+          !deliveryAddress.trim())) ||
+      !input.deliveryDay ||
+      !input.slotId ||
+      (discount === "voucher" && !input.voucherCode?.trim())
+    ) {
+      setQuotePending(false);
+      return;
     }
-  }
+    setQuotePending(true);
+    const timer = setTimeout(async () => {
+      try {
+        const result = await request<Quote>("admin/orders/quote", input);
+        if (quoteEpoch.current === epoch) {
+          setQuoted(result);
+          setQuoteError("");
+        }
+      } catch (e) {
+        if (quoteEpoch.current === epoch) {
+          setQuoted(null);
+          setQuoteError((e as Error).message);
+        }
+      } finally {
+        if (quoteEpoch.current === epoch) setQuotePending(false);
+      }
+    }, 350);
+    return () => {
+      clearTimeout(timer);
+      ++quoteEpoch.current;
+    };
+  }, [
+    items,
+    customerId,
+    method,
+    stage,
+    discount,
+    formVersion,
+    manualShipping,
+    manualFee,
+    shippingReason,
+    deliveryAddress,
+    deliveryPoint,
+    addressDetails,
+    ship.quote,
+    shipping?.version,
+  ]);
   async function save(e: FormEvent) {
     e.preventDefault();
     if (!quoted || busy) return;
     setBusy(true);
     setError("");
     try {
-      const order = await request<{ id: string; code: string }>(
-        "admin/orders",
-        payload(),
-      );
+      const order = await request<{
+        id: string;
+        code: string;
+        paymentMethod: string;
+        paymentStatus: string;
+      }>("admin/orders", payload());
       await onSaved(order);
     } catch (e) {
       setError((e as Error).message);
+      ++quoteEpoch.current;
+      setQuoted(null);
+      setFormVersion((v) => v + 1);
     } finally {
       setBusy(false);
     }
@@ -168,7 +277,11 @@ export function AdminOrderCreate({
         ref={formRef}
         className="form-stack"
         onSubmit={save}
-        onChange={() => setQuoted(null)}
+        onChange={() => {
+          ++quoteEpoch.current;
+          setQuoted(null);
+          setFormVersion((v) => v + 1);
+        }}
       >
         <fieldset disabled={busy}>
           <div className="two-columns">
@@ -186,17 +299,13 @@ export function AdminOrderCreate({
             </label>
             <label>
               Trạng thái ban đầu
-              <Select value={stage} onChange={(e) => setStage(e.target.value)}>
+              <Select
+                aria-label="Trạng thái ban đầu"
+                value={stage}
+                onChange={(e) => setStage(e.target.value)}
+              >
                 {Object.entries(initialOrderStages).map(([id, label]) => (
-                  <option
-                    key={id}
-                    value={id}
-                    disabled={
-                      payment !== "PAID" &&
-                      (id === "DELIVERED" ||
-                        (method === "SEPAY" && id !== "PENDING"))
-                    }
-                  >
+                  <option key={id} value={id}>
                     {label}
                   </option>
                 ))}
@@ -390,6 +499,7 @@ export function AdminOrderCreate({
                 </Select>
               </label>
             </div>
+
             <p className="small muted">
               Chọn tài khoản để đơn xuất hiện trong hồ sơ khách và tính chi tiêu
               hội viên. Khách lẻ không cần email.
@@ -430,20 +540,68 @@ export function AdminOrderCreate({
                 />
               </label>
             </div>
+            <AddressAutocomplete
+              label="Địa chỉ giao hoa"
+              value={deliveryAddress}
+              onChange={setDeliveryAddress}
+              selection={deliveryPoint}
+              onSelect={setDeliveryPoint}
+              enabled={!!shipping?.configured}
+              requireSelection={!manualShipping}
+            />
             <label>
-              Địa chỉ giao hoa
-              <input name="address" required minLength={8} maxLength={300} />
+              Căn hộ/tầng/cổng vào/hướng dẫn thêm
+              <input
+                name="addressDetails"
+                value={addressDetails}
+                maxLength={200}
+                onChange={(event) => setAddressDetails(event.target.value)}
+              />
             </label>
-            <label>
-              Khu vực giao
-              <Select name="zoneId" required defaultValue={zones[0]?.id ?? ""}>
-                {zones.map((z) => (
-                  <option key={z.id} value={z.id}>
-                    {z.name} · {money(z.fee)}
-                  </option>
-                ))}
-              </Select>
-            </label>
+            {shipping?.allowManual && (
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={manualShipping}
+                  onChange={(event) => setManualShipping(event.target.checked)}
+                />
+                Phí giao theo thỏa thuận
+              </label>
+            )}
+            {manualShipping ? (
+              <div className="two-columns">
+                <label>
+                  Phí giao thỏa thuận (VNĐ)
+                  <input
+                    aria-label="Phí giao thỏa thuận"
+                    type="number"
+                    min="0"
+                    max="100000000"
+                    step="1"
+                    required
+                    value={manualFee}
+                    onChange={(event) => setManualFee(event.target.value)}
+                  />
+                </label>
+                <label>
+                  Lý do / nội dung thỏa thuận
+                  <input
+                    required
+                    minLength={4}
+                    maxLength={300}
+                    value={shippingReason}
+                    onChange={(event) => setShippingReason(event.target.value)}
+                  />
+                </label>
+              </div>
+            ) : (
+              <ShippingSummary
+                quote={ship.quote}
+                checking={ship.checking}
+                error={ship.error}
+                onRetry={ship.refresh}
+              />
+            )}
             <div className="two-columns">
               <label>
                 Ngày giao
@@ -491,6 +649,7 @@ export function AdminOrderCreate({
             <label>
               Ưu đãi
               <Select
+                aria-label="Ưu đãi đơn hàng"
                 value={discount}
                 onChange={(e) => setDiscount(e.target.value)}
               >
@@ -533,6 +692,38 @@ export function AdminOrderCreate({
                 </Select>
               </label>
             </div>
+            {method === "SEPAY" && payment === "UNPAID" && (
+              <div className="admin-payment-terms">
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={noPaymentLimit}
+                    onChange={(e) => setNoPaymentLimit(e.target.checked)}
+                  />
+                  Không giới hạn thời gian thanh toán
+                </label>
+                {!noPaymentLimit && (
+                  <label>
+                    Hạn thanh toán sau khi tạo đơn (giờ)
+                    <input
+                      aria-label="Hạn thanh toán (giờ)"
+                      type="number"
+                      min="0.25"
+                      max="720"
+                      step="0.25"
+                      required
+                      value={paymentHours}
+                      onChange={(e) => setPaymentHours(e.target.value)}
+                    />
+                  </label>
+                )}
+                <p className="small muted">
+                  Hết hạn sẽ dừng xác nhận tự động và cần đối soát nếu khách
+                  chuyển muộn. Đơn tạo thủ công không tự hủy; cửa hàng chủ động
+                  quản lý hàng đang giữ.
+                </p>
+              </div>
+            )}
             {payment === "PAID" && (
               <div className="admin-create-proof">
                 <p className="small">
@@ -561,14 +752,20 @@ export function AdminOrderCreate({
               </div>
             )}
             <p className="small muted">
-              Đơn SePay chưa thu tiền chờ xác nhận trong 15 phút. Đơn tiền mặt
-              có thể chuẩn bị trước; trạng thái Đã giao cần xác nhận đã thu đủ
-              tiền.
+              Có thể chọn mọi giai đoạn xử lý khi tạo đơn. Giao hàng và thanh
+              toán được theo dõi riêng; QR chuyển khoản hiển thị sau khi tạo đơn
+              SePay chưa thu tiền.
             </p>
           </section>
         </fieldset>
         <div className="admin-create-summary" aria-live="polite">
-          {quoted ? (
+          {quotePending ? (
+            <p role="status">Đang kiểm tra tổng tiền và ưu đãi…</p>
+          ) : quoteError ? (
+            <p className="form-error" role="alert">
+              {quoteError}
+            </p>
+          ) : quoted ? (
             <>
               <span>
                 Tiền hoa <b>{money(quoted.subtotal)}</b>
@@ -585,7 +782,10 @@ export function AdminOrderCreate({
               </strong>
             </>
           ) : (
-            <p>Chọn hoa và điền thông tin, sau đó kiểm tra tổng tiền.</p>
+            <p>
+              Chọn hoa, kích cỡ, địa điểm nhận và lịch giao để tự động tính tổng
+              tiền.
+            </p>
           )}
         </div>
         {error && (
@@ -594,15 +794,7 @@ export function AdminOrderCreate({
           </p>
         )}
         <div className="admin-create-actions">
-          <button
-            className="button secondary"
-            type="button"
-            disabled={busy}
-            onClick={check}
-          >
-            {busy ? "Đang xử lý…" : "Kiểm tra tổng tiền"}
-          </button>
-          <button className="button" disabled={busy || !quoted}>
+          <button className="button" disabled={busy || quotePending || !quoted}>
             {busy ? "Đang xử lý…" : "Tạo đơn"}
           </button>
         </div>

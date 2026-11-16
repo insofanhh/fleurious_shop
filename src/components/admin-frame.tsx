@@ -1,4 +1,5 @@
 "use client";
+import { FlowerIcon } from "./flower-icon";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -12,7 +13,6 @@ import {
   LayoutDashboard,
   ShoppingBag,
   CalendarDays,
-  Flower2,
   LayoutGrid,
   Package,
   Users,
@@ -42,8 +42,8 @@ export const adminSections = [
   { id: "overview", name: "Tổng quan", Icon: LayoutDashboard, group: "" },
   { id: "orders", name: "Đơn hàng", Icon: ShoppingBag },
   { id: "calendar", name: "Lịch giao hoa", Icon: CalendarDays },
-  { id: "products", name: "Sản phẩm", Icon: Flower2, group: "CỬA HÀNG" },
-  { id: "taxonomies", name: "Danh mục & bộ sưu tập", Icon: LayoutGrid },
+  { id: "products", name: "Sản phẩm", Icon: FlowerIcon, group: "CỬA HÀNG" },
+  { id: "taxonomies", name: "Danh mục & size", Icon: LayoutGrid },
   { id: "inventory", name: "Tồn kho", Icon: Package },
   { id: "customers", name: "Khách hàng", Icon: Users },
   { id: "members", name: "Hội viên", Icon: Sparkles },

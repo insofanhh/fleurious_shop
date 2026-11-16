@@ -27,7 +27,14 @@ export async function request<T = unknown>(
     cache: "no-store",
   });
   const value = await response.json();
-  if (!response.ok) throw new Error(value.error ?? "Không thể xử lý yêu cầu");
+  if (!response.ok) {
+    if (
+      value.code === "SHIPPING_ROUTE_CHANGED" &&
+      typeof window !== "undefined"
+    )
+      window.dispatchEvent(new Event("fleurious:shipping-refresh"));
+    throw new Error(value.error ?? "Không thể xử lý yêu cầu");
+  }
   return value;
 }
 type ShopContext = Bootstrap & {

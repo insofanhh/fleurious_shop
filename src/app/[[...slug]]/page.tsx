@@ -27,6 +27,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     notifications: "Thông báo",
     auth: "Đăng nhập",
     orders: "Đơn hàng",
+    "track-order": "Theo dõi đơn hàng",
     q: "Nhận một ngày có hoa",
   };
   return {
@@ -40,6 +41,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
         "account",
         "auth",
         "orders",
+        "track-order",
         "q",
         "checkout",
         "cart",
@@ -63,6 +65,7 @@ export default async function Page({ params }: Props) {
     "notifications",
     "auth",
     "orders",
+    "track-order",
     "q",
     "about",
     "delivery",

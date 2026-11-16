@@ -1,9 +1,10 @@
 "use client";
+import { FlowerIcon } from "./flower-icon";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useState } from "react";
 import {
-  Flower2,
   Bell,
   ShoppingBag,
   UserRound,
@@ -20,13 +21,18 @@ import { useShop } from "./shop-provider";
 import { dayKey } from "@/lib/time";
 import { NotificationBell, NotificationBadge } from "./notification-center";
 import { BrandMark } from "./brand-mark";
+import { ClientScrollEffects } from "./client-scroll-effects";
 export function Shell({ children }: { children: React.ReactNode }) {
   const { cart, settings } = useShop();
   const path = usePathname();
+  const isActive = (href: string) =>
+    path === href || path.startsWith(`${href}/`);
+  const reducedMotion = useReducedMotion();
   const [open, setOpen] = useState(false);
   if (path.startsWith("/admin")) return children;
   return (
     <>
+      <ClientScrollEffects />
       <div className="announcement">
         <span>Giao một bó hoa. Gửi ngàn thương mến.</span>
         <span className="announcement-right">
@@ -47,10 +53,38 @@ export function Shell({ children }: { children: React.ReactNode }) {
               Tất cả hoa
             </Link>
             <Link href="/collections/sinh-nhat">Theo dịp tặng</Link>
-            <Link href="/membership">
+            <Link
+              href="/membership"
+              className={isActive("/membership") ? "active" : ""}
+              aria-current={
+                path === "/membership"
+                  ? "page"
+                  : isActive("/membership")
+                    ? "location"
+                    : undefined
+              }
+            >
               Hội viên <span className="tiny-star">✧</span>
             </Link>
-            <Link href="/about">Chuyện của hoa</Link>
+            <Link
+              href="/about"
+              className={isActive("/about") ? "active" : ""}
+              aria-current={
+                path === "/about"
+                  ? "page"
+                  : isActive("/about")
+                    ? "location"
+                    : undefined
+              }
+            >
+              Chuyện của hoa
+            </Link>
+            <Link
+              href="/track-order"
+              className={path === "/track-order" ? "active" : ""}
+            >
+              Theo dõi đơn
+            </Link>
           </nav>
           <div className="header-actions">
             <div className="header-notifications">
@@ -87,8 +121,21 @@ export function Shell({ children }: { children: React.ReactNode }) {
               ["/membership", "Hội viên Fleurious"],
               ["/streak", "Những ngày có hoa"],
               ["/about", "Chuyện của hoa"],
+              ["/track-order", "Theo dõi đơn hàng"],
             ].map(([href, label]) => (
-              <Link key={href} href={href} onClick={() => setOpen(false)}>
+              <Link
+                key={href}
+                href={href}
+                className={isActive(href) ? "active" : ""}
+                aria-current={
+                  path === href
+                    ? "page"
+                    : isActive(href)
+                      ? "location"
+                      : undefined
+                }
+                onClick={() => setOpen(false)}
+              >
                 {label}
                 <ArrowUpRight size={17} />
               </Link>
@@ -96,7 +143,23 @@ export function Shell({ children }: { children: React.ReactNode }) {
           </nav>
         )}
       </header>
-      <main id="main-content">{children}</main>
+      <main id="main-content">
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={path}
+            className="client-page"
+            initial={{ opacity: reducedMotion ? 1 : 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: reducedMotion ? 1 : 0 }}
+            transition={{
+              duration: reducedMotion ? 0 : 0.16,
+              ease: "easeInOut",
+            }}
+          >
+            {children}
+          </motion.div>
+        </AnimatePresence>
+      </main>
       <section className="closing-note">
         <BrandMark />
         <p>
@@ -125,6 +188,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           <Link href="/flowers">Tất cả hoa</Link>
           <Link href="/membership">Hội viên</Link>
           <Link href="/streak">Giữ chuỗi</Link>
+          <Link href="/track-order">Theo dõi đơn hàng</Link>
         </div>
         <div>
           <h3>Chúng tôi ở đây</h3>
@@ -145,14 +209,14 @@ export function Shell({ children }: { children: React.ReactNode }) {
         <div className="footer-bottom">
           <span>© {dayKey().slice(0, 4)} Fleurious. Made with care.</span>
           <span>
-            Hà Nội · UTC+7 <Flower2 size={13} />
+            Hà Nội · UTC+7 <FlowerIcon size={13} />
           </span>
         </div>
       </footer>
       {path !== "/checkout" && (
         <nav className="bottom-nav" aria-label="Điều hướng điện thoại">
           {[
-            { href: "/", label: "Khám phá", Icon: Flower2 },
+            { href: "/", label: "Khám phá", Icon: FlowerIcon },
             { href: "/notifications", label: "Thông báo", Icon: Bell },
             { href: "/streak", label: "Giữ chuỗi", Icon: Flame },
             { href: "/account", label: "Tài khoản", Icon: UserRound },

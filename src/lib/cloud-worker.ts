@@ -61,11 +61,17 @@ async function drain() {
         continue;
       }
       await projectStaffNotification(event);
-      if (event.userId && event.event !== "notification.read")
+      if (
+        event.userId &&
+        event.event !== "notification.read" &&
+        event.event !== "collection.changed" &&
+        (event.payload as { push?: boolean }).push !== false
+      )
         await sendPush(
           event.userId,
           event.event,
           (event.payload as { admin?: boolean }).admin === true,
+          event.payload,
         );
       await db.outbox.update({
         where: { id: event.id },

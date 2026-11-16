@@ -1,8 +1,10 @@
 import { NextRequest } from "next/server";
-import { mkdir, writeFile } from "node:fs/promises";
-import path from "node:path";
-import { randomUUID } from "node:crypto";
-import sharp from "sharp";
+import {
+  optimizeCatalogImage,
+  storeCatalogImage,
+  MAX_IMAGE_BYTES,
+  IMAGE_TYPES,
+} from "@/lib/catalog-image";
 import { currentUser, can } from "@/lib/auth";
 import { fail, handle, json, rateLimit } from "@/lib/api";
 import { db } from "@/lib/db";
@@ -19,31 +21,41 @@ export async function POST(request: NextRequest) {
     await rateLimit(`upload:${user.id}`, 10, 60);
     if (Number(request.headers.get("content-length") ?? 0) > 4.4 * 1024 * 1024)
       fail("FILE_TOO_LARGE", "Ảnh tối đa 4 MB.", 413);
-    const form = await request.formData();
+    if (!request.headers.get("content-type")?.startsWith("multipart/form-data"))
+      fail("INVALID_CONTENT_TYPE", "Chọn một ảnh để tải lên.", 415);
+    const reader = request.body?.getReader();
+    if (!reader) fail("INVALID_IMAGE", "Chưa có ảnh để tải lên.");
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > 4.4 * 1024 * 1024) {
+        await reader.cancel();
+        fail("FILE_TOO_LARGE", "Ảnh tối đa 4 MB.", 413);
+      }
+      chunks.push(value);
+    }
+    const form = await new Request(request.url, {
+      method: "POST",
+      headers: { "Content-Type": request.headers.get("content-type")! },
+      body: Buffer.concat(chunks),
+    }).formData();
     const file = form.get("file");
     if (
       !(file instanceof File) ||
-      file.size > 4 * 1024 * 1024 ||
-      !["image/jpeg", "image/png", "image/webp"].includes(file.type)
+      file.size > MAX_IMAGE_BYTES ||
+      !IMAGE_TYPES.includes(file.type)
     )
       fail("INVALID_IMAGE", "Chọn ảnh JPG, PNG hoặc WebP, tối đa 4 MB.");
-    const buffer = await sharp(Buffer.from(await file.arrayBuffer()), {
-      limitInputPixels: 40000000,
-    })
-      .rotate()
-      .resize({ width: 1600, withoutEnlargement: true })
-      .webp({ quality: 85 })
-      .toBuffer();
-    const name = `${randomUUID()}.webp`;
-    if (process.env.VERCEL === "1") {
-      await db.mediaAsset.create({ data: { id: name, data: buffer } });
-    } else {
-      const directory = path.join(process.cwd(), "storage", "uploads");
-      await mkdir(directory, { recursive: true });
-      await writeFile(path.join(directory, name), buffer);
-    }
-    await dbAudit(user.id, name);
-    return json({ url: `/media/${name}` }, 201);
+    const buffer = await optimizeCatalogImage(
+      new Uint8Array(await file.arrayBuffer()),
+      file.type,
+    );
+    const blob = await storeCatalogImage(buffer);
+    await dbAudit(user.id, blob.pathname);
+    return json({ url: blob.url, size: buffer.length }, 201);
   });
 }
 async function dbAudit(actorId: string, name: string) {

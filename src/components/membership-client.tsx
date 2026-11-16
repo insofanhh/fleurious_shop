@@ -532,10 +532,6 @@ function MembershipOverview() {
             <p>{text}</p>
           </details>
         ))}
-        <p className="small muted">
-          Điều lệ membership-v2 · Hà Nội, UTC+7. Quyền lợi của gói đã thanh toán
-          được bảo toàn theo phiên bản lúc mua.
-        </p>
       </div>
     </section>
   );

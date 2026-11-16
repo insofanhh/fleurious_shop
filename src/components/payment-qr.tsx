@@ -21,7 +21,7 @@ export function PaymentQr({
   bank?: string;
   accountNumber?: string;
   accountName?: string;
-  expiresAt: string;
+  expiresAt?: string;
   serverNow?: string;
   title?: string;
 }) {
@@ -41,7 +41,7 @@ export function PaymentQr({
   return (
     <section className="payment-card" aria-label="Thông tin thanh toán SePay">
       <span className="eyebrow">QR THANH TOÁN · SEPAY</span>
-      <h2>{title}</h2>
+      {title && <h2>{title}</h2>}
       <div className="payment-card-body">
         <div className="payment-card-qr">
           <img
@@ -53,19 +53,25 @@ export function PaymentQr({
           />
         </div>
         <div className="payment-card-information">
-          <div
-            className={`payment-countdown ${seconds !== null && seconds <= 60 ? "urgent" : ""}`}
-          >
-            <Clock3 size={16} aria-hidden="true" />
-            <span>Thời gian thanh toán còn lại</span>
-            <strong
-              role="timer"
-              aria-live="off"
-              aria-label="Thời gian thanh toán còn lại"
+          {expiresAt ? (
+            <div
+              className={`payment-countdown ${seconds !== null && seconds <= 60 ? "urgent" : ""}`}
             >
-              {seconds === null ? "--:--" : formatCountdown(seconds)}
-            </strong>
-          </div>
+              <Clock3 size={16} aria-hidden="true" />
+              <span>Thời gian thanh toán còn lại</span>
+              <strong
+                role="timer"
+                aria-live="off"
+                aria-label="Thời gian thanh toán còn lại"
+              >
+                {seconds === null ? "--:--" : formatCountdown(seconds)}
+              </strong>
+            </div>
+          ) : (
+            <p className="payment-countdown">
+              Không giới hạn thời gian thanh toán · Đến khi cửa hàng đóng đơn
+            </p>
+          )}
           <div className="payment-card-amount">
             <span>Số tiền chuyển khoản</span>
             <strong>{money(amount)}</strong>
@@ -105,8 +111,9 @@ export function PaymentQr({
             ))}
           </dl>
           <p className="payment-card-note" role="status">
-            Chuyển đúng số tiền và nội dung trước {humanDate(expiresAt)}. Trang
-            tự cập nhật khi SePay xác nhận.
+            Chuyển đúng số tiền và nội dung
+            {expiresAt ? ` trước ${humanDate(expiresAt)}` : ""}. Trang tự cập
+            nhật khi SePay xác nhận.
           </p>
         </div>
       </div>

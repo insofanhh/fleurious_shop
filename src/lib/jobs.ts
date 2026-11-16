@@ -8,6 +8,7 @@ import { atomic } from "./commerce";
 import { membershipMaintenance } from "./membership";
 import { reconcileSepay } from "./sepay-reconcile";
 import { getPushConfig } from "./push-config";
+import { remindCollections, collectionPushCurrent } from "./collections";
 export async function fundWaitingRewards() {
   const settings = await getSettings();
   await atomic(async (tx) => {
@@ -54,6 +55,17 @@ export async function fundWaitingRewards() {
   });
 }
 export async function ensureCleanupJob() {
+  const collectionId = `collection-reminders:${Math.floor(Date.now() / 300000) * 5}`;
+  await db.jobRun.upsert({
+    where: { id: collectionId },
+    create: {
+      id: collectionId,
+      name: "collection-reminders",
+      status: "QUEUED",
+      detail: "",
+    },
+    update: {},
+  });
   await db.googleLoginAttempt.deleteMany({
     where: { expiresAt: { lt: new Date() } },
   });
@@ -140,6 +152,7 @@ export async function processJobs(onlyId?: string) {
       if (["membership-maintenance", "membership-recheck"].includes(job.name))
         await membershipMaintenance(job.name === "membership-recheck");
       if (job.name === "reconcile") await reconcileSepay();
+      if (job.name === "collection-reminders") await remindCollections();
       if (job.name === "delivery-reminders") {
         const orders = await db.order.findMany({
           where: {
@@ -228,14 +241,16 @@ export async function processJobs(onlyId?: string) {
     }
   }
 }
-export async function sendPush(userId: string, event: string, admin = false) {
+export async function sendPush(
+  userId: string,
+  event: string,
+  admin = false,
+  payload?: unknown,
+) {
+  if (!(await collectionPushCurrent(payload))) return;
   const config = getPushConfig();
   if (!config) return;
-  webpush.setVapidDetails(
-    config.subject,
-    config.publicKey,
-    config.privateKey,
-  );
+  webpush.setVapidDetails(config.subject, config.publicKey, config.privateKey);
   const subscriptions = await db.pushSubscription.findMany({
     where: { userId },
   });

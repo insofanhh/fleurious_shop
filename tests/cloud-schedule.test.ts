@@ -17,6 +17,7 @@ after(async () => {
           "membership-maintenance",
           "delivery-reminders",
           "reconcile",
+          "collection-reminders",
         ].map((name) => ({
           id: {
             in: [start, start + 420, start + 1230, start + 1231].map(
@@ -33,8 +34,8 @@ after(async () => {
 test("cloud minute scheduler is retry-safe and follows 07:00/20:30 in Hanoi", async () => {
   assert.match(new URL(process.env.DATABASE_URL!).pathname, /_test$/);
   const first = new Date(`${day}T00:00:00+07:00`);
-  assert.equal(await enqueueCloudSchedule(first), 4);
-  assert.equal(await enqueueCloudSchedule(first), 4);
+  assert.equal(await enqueueCloudSchedule(first), 5);
+  assert.equal(await enqueueCloudSchedule(first), 5);
   assert.equal(await db.jobRun.count({ where: { id: `cleanup:${start}` } }), 1);
   assert.equal(await db.jobRun.count({ where: { id: `digest:${day}` } }), 0);
   await enqueueCloudSchedule(new Date(`${day}T07:00:00+07:00`));

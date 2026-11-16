@@ -1,6 +1,11 @@
 "use client";
-import { stoppedOrderStatuses } from "@/lib/order-workflow";
-import { isOrderExpired } from "@/lib/order-expiry";
+import { FlowerIcon } from "./flower-icon";
+import { stoppedOrderStatuses, isDeliveredOrder } from "@/lib/order-workflow";
+import { isOrderExpired, paymentDeadlineIso } from "@/lib/order-expiry";
+import { AddressAutocomplete } from "./ui/address-autocomplete";
+import { useShippingQuote } from "./use-shipping-quote";
+import { ShippingSummary } from "./shipping-summary";
+import type { AddressSelection } from "@/lib/shipping-types";
 import { useDeadline } from "./use-deadline";
 import { useCheckoutQuote } from "./use-checkout-quote";
 import { CardWritingChoice } from "./card-writing-choice";
@@ -8,6 +13,8 @@ import { PasswordInput } from "./password-input";
 import { GoogleSignIn } from "./google-sign-in";
 import { safeAuthNext, googleAuthErrors } from "@/lib/auth-redirect";
 import { cardWritingLabels, type CardWritingMode } from "@/lib/card-design";
+import { OrderActions } from "./order-actions";
+import { OrderJourney } from "./order-journey";
 import { PaymentQr } from "./payment-qr";
 import { NotificationInbox } from "./notification-center";
 import { StreakScanner } from "./streak-scanner";
@@ -16,7 +23,7 @@ import { BrandMark } from "./brand-mark";
 import { Select } from "./ui/select";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   ArrowRight,
   ArrowUpRight,
@@ -26,7 +33,6 @@ import {
   Clock3,
   CreditCard,
   Flame,
-  Flower2,
   Gift,
   Heart,
   LogOut,
@@ -71,7 +77,7 @@ function LoginPrompt({ next = "/account" }: { next?: string }) {
   const { ready } = useShop();
   return (
     <div className="empty-state">
-      <Flower2 size={42} strokeWidth={1} />
+      <FlowerIcon size={42} strokeWidth={1} />
       <h2>
         {ready ? "Một góc nhỏ dành riêng cho bạn." : "Đang mở góc nhỏ của bạn…"}
       </h2>
@@ -339,7 +345,7 @@ export function StreakPage() {
       value: stats.monthly,
       target: settings.monthlyThreshold,
       percent: settings.monthlyPercent,
-      Icon: Flower2,
+      Icon: FlowerIcon,
     },
   ];
   function changeMonth(n: number) {
@@ -595,8 +601,11 @@ export function StreakPage() {
   );
 }
 export function AccountPage({ section }: { section?: string }) {
-  const { user, me, refresh, toast, settings, vapidKey, zones } = useShop();
+  const { user, me, refresh, toast, settings, vapidKey, shipping } = useShop();
   const router = useRouter();
+  const [savedText, setSavedText] = useState(""),
+    [savedPoint, setSavedPoint] = useState<AddressSelection | null>(null),
+    [savedDetails, setSavedDetails] = useState("");
   const [busy, setBusy] = useState(false);
   if (section === "notifications") return <NotificationInbox />;
   if (!user || !me) return <LoginPrompt />;
@@ -849,11 +858,15 @@ export function AccountPage({ section }: { section?: string }) {
               const form = e.currentTarget;
               setBusy(true);
               try {
-                await request(
-                  "me/addresses",
-                  Object.fromEntries(new FormData(form)),
-                );
+                await request("me/addresses", {
+                  ...Object.fromEntries(new FormData(form)),
+                  locationId: savedPoint?.id,
+                  addressDetails: savedDetails,
+                });
                 form.reset();
+                setSavedText("");
+                setSavedPoint(null);
+                setSavedDetails("");
                 await refresh();
                 toast("Đã lưu địa chỉ.");
               } catch (e) {
@@ -872,19 +885,22 @@ export function AccountPage({ section }: { section?: string }) {
               Điện thoại
               <input name="phone" required minLength={10} />
             </label>
+            <AddressAutocomplete
+              label="Địa chỉ"
+              value={savedText}
+              onChange={setSavedText}
+              selection={savedPoint}
+              onSelect={setSavedPoint}
+              enabled={!!shipping?.configured}
+              requireSelection
+            />
             <label>
-              Địa chỉ
-              <input name="address" required minLength={8} />
-            </label>
-            <label>
-              Khu vực
-              <Select name="zoneId">
-                {zones.map((z) => (
-                  <option key={z.id} value={z.id}>
-                    {z.name}
-                  </option>
-                ))}
-              </Select>
+              Căn hộ/tầng/cổng vào
+              <input
+                maxLength={200}
+                value={savedDetails}
+                onChange={(event) => setSavedDetails(event.target.value)}
+              />
             </label>
             <button className="button" disabled={busy}>
               Lưu địa chỉ <Plus size={16} />
@@ -909,7 +925,7 @@ function OrderList({ orders }: { orders: Order[] }) {
             />
             <div>
               <span className="small muted">{o.code}</span>
-              <h3>{o.items.map((i) => i.name).join(", ")}</h3>
+              <h3>{[...new Set(o.items.map((i) => i.name))].join(", ")}</h3>
               <p>
                 {o.deliveryDay} · {o.slotLabel}
               </p>
@@ -927,20 +943,13 @@ function OrderList({ orders }: { orders: Order[] }) {
             <strong>{money(o.total)}</strong>
             <ArrowUpRight size={19} />
           </Link>
-          {isOrderExpired(o) && (
-            <Link
-              className="button secondary reorder-list-button"
-              href={`/checkout?reorder=${o.id}`}
-            >
-              Đặt lại <ArrowRight size={15} />
-            </Link>
-          )}
+          <OrderActions order={o} />
         </div>
       ))}
     </div>
   ) : (
     <div className="empty-state">
-      <Flower2 size={36} />
+      <FlowerIcon size={36} />
       <h2>Một bó hoa đầu tiên đang đợi bạn.</h2>
       <Link href="/flowers" className="text-link">
         Khám phá vườn hoa <ArrowRight size={16} />
@@ -952,7 +961,6 @@ export function CheckoutPage() {
   const {
     cart,
     products,
-    zones,
     slots,
     user,
     me,
@@ -963,6 +971,7 @@ export function CheckoutPage() {
     toast,
     ready,
     mergeCart,
+    shipping,
   } = useShop();
   const router = useRouter();
   const reorderId = useSearchParams().get("reorder");
@@ -980,8 +989,23 @@ export function CheckoutPage() {
       | "cardMessage"
       | "cardWritingMode"
       | "note"
-    > & { zoneId: string };
+    > & { zoneId: string | null; addressDetails?: string };
   };
+  const [deliveryAddress, setDeliveryAddress] = useState(""),
+    [deliveryPoint, setDeliveryPoint] = useState<AddressSelection | null>(null),
+    [addressDetails, setAddressDetails] = useState("");
+  const savedAddressEpoch = useRef(0);
+  useEffect(
+    () => () => {
+      ++savedAddressEpoch.current;
+    },
+    [],
+  );
+  const ship = useShippingQuote(
+    deliveryPoint?.id,
+    true,
+    shipping?.version ?? 0,
+  );
   const [reorder, setReorder] = useState<ReorderResult | null>(null);
   const [reorderLoading, setReorderLoading] = useState(!!reorderId);
   const [reorderError, setReorderError] = useState("");
@@ -994,7 +1018,6 @@ export function CheckoutPage() {
     [error, setError] = useState(""),
     [discountChoice, setDiscountChoice] = useState("none"),
     [payment, setPayment] = useState(sepayAvailable ? "SEPAY" : "COD"),
-    [zoneId, setZone] = useState(zones[0]?.id ?? ""),
     [deliveryDay, setDeliveryDay] = useState(shiftDay(dayKey(), 1)),
     [slotId, setSlotId] = useState(slots[0]?.id ?? ""),
     [voucher, setVoucher] = useState("");
@@ -1010,9 +1033,10 @@ export function CheckoutPage() {
         if (!active) return;
         mergeCart(result.items);
         setReorder(result);
+        setDeliveryAddress(result.draft.address);
+        setDeliveryPoint(null);
+        setAddressDetails(result.draft.addressDetails ?? "");
         setCardWritingMode(result.draft.cardWritingMode ?? "AUTO");
-        if (zones.some((z) => z.id === result.draft.zoneId))
-          setZone(result.draft.zoneId);
         setReorderError("");
         // The prepared draft lives only in this checkout; reloads must not append the same order again.
         router.replace("/checkout", { scroll: false });
@@ -1038,7 +1062,7 @@ export function CheckoutPage() {
       .find((v) => v.id === i.variantId);
     return s + (v?.price ?? 0) * i.quantity;
   }, 0);
-  const fee = zones.find((z) => z.id === zoneId)?.fee ?? 0;
+  const fee = ship.quote?.fee ?? 0;
   const remaining = Math.max(
     0,
     (me?.period?.limit ?? settings.memberQuota) -
@@ -1054,7 +1078,11 @@ export function CheckoutPage() {
   } = useCheckoutQuote(
     {
       items: cart,
-      zoneId,
+      zoneId: null,
+      locationId: deliveryPoint?.id,
+      shippingQuoteId: ship.quote?.id,
+      addressDetails,
+      address: deliveryAddress,
       deliveryDay,
       slotId,
       paymentMethod: payment as "SEPAY" | "COD",
@@ -1064,7 +1092,11 @@ export function CheckoutPage() {
         : undefined,
       voucherCode: discountChoice === "voucher" ? voucher.trim() : undefined,
     },
-    ready && cart.length > 0 && !reorderLoading && !reorderError,
+    ready &&
+      cart.length > 0 &&
+      !reorderLoading &&
+      !reorderError &&
+      !!ship.quote,
     JSON.stringify([
       user?.id,
       me?.membership.current,
@@ -1080,7 +1112,11 @@ export function CheckoutPage() {
     return {
       ...Object.fromEntries(new FormData(form)),
       items: cart,
-      zoneId,
+      zoneId: null,
+      locationId: deliveryPoint?.id,
+      shippingQuoteId: ship.quote?.id,
+      addressDetails,
+      address: deliveryAddress,
       deliveryDay,
       slotId,
       paymentMethod: payment,
@@ -1228,26 +1264,73 @@ export function CheckoutPage() {
               />
             </label>
           </div>
+          {me?.addresses.length ? (
+            <label>
+              Địa chỉ đã lưu
+              <Select
+                aria-label="Địa chỉ đã lưu"
+                defaultValue=""
+                onChange={async (event) => {
+                  const epoch = ++savedAddressEpoch.current;
+                  const saved = me.addresses.find(
+                    (item) => item.id === event.target.value,
+                  );
+                  if (!saved) return;
+                  setDeliveryAddress(saved.formattedAddress ?? saved.address);
+                  setAddressDetails(saved.addressDetails ?? "");
+                  setDeliveryPoint(null);
+                  try {
+                    const point = await request<AddressSelection>(
+                      "locations/resolve",
+                      {
+                        savedAddressId: saved.id,
+                      },
+                    );
+                    if (epoch !== savedAddressEpoch.current) return;
+                    setDeliveryAddress(point.address);
+                    setDeliveryPoint(point);
+                  } catch (e) {
+                    if (epoch === savedAddressEpoch.current)
+                      toast((e as Error).message);
+                  }
+                }}
+              >
+                <option value="">Chọn địa chỉ hoặc nhập địa chỉ mới</option>
+                {me.addresses.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name} · {item.address}
+                  </option>
+                ))}
+              </Select>
+            </label>
+          ) : null}
+          <AddressAutocomplete
+            value={deliveryAddress}
+            onChange={(value) => {
+              ++savedAddressEpoch.current;
+              setDeliveryAddress(value);
+            }}
+            selection={deliveryPoint}
+            onSelect={setDeliveryPoint}
+            enabled={!!shipping?.configured}
+            requireSelection
+          />
           <label>
-            Địa chỉ chi tiết
+            Căn hộ/tầng/cổng vào/hướng dẫn thêm
             <input
-              name="address"
-              defaultValue={reorder?.draft.address}
-              placeholder="Số nhà, đường, phường…"
-              required
-              minLength={8}
+              name="addressDetails"
+              maxLength={200}
+              value={addressDetails}
+              onChange={(event) => setAddressDetails(event.target.value)}
+              placeholder="Ví dụ: tầng 5, căn 501, giao tại sảnh…"
             />
           </label>
-          <label>
-            Khu vực giao
-            <Select value={zoneId} onChange={(e) => setZone(e.target.value)}>
-              {zones.map((z) => (
-                <option value={z.id} key={z.id}>
-                  {z.name} · {money(z.fee)}
-                </option>
-              ))}
-            </Select>
-          </label>
+          <ShippingSummary
+            quote={ship.quote}
+            checking={ship.checking}
+            error={ship.error}
+            onRetry={ship.refresh}
+          />
           <div className="two-columns">
             <label>
               Ngày giao
@@ -1450,7 +1533,11 @@ export function CheckoutPage() {
           </div>
           <div className="summary-line">
             <span>Giao hoa</span>
-            <strong>{money(quoted?.deliveryFee ?? fee)}</strong>
+            <strong>
+              {!ship.quote
+                ? "Chưa xác định"
+                : money(quoted?.deliveryFee ?? fee)}
+            </strong>
           </div>
           {quoted?.discount ? (
             <div className="summary-line discount">
@@ -1464,7 +1551,9 @@ export function CheckoutPage() {
                 ? "Đang tính tổng tiền…"
                 : quoted
                   ? "Tổng thanh toán"
-                  : "Tạm tính trước ưu đãi"}
+                  : !ship.quote
+                    ? "Tiền hoa tạm tính · chưa gồm ship"
+                    : "Tạm tính trước ưu đãi"}
             </span>
             <strong>{money(quoted?.total ?? subtotal + fee)}</strong>
           </div>
@@ -1499,7 +1588,10 @@ export function OrderPage({ id }: { id?: string }) {
   const { toast } = useShop();
   const [order, setOrder] = useState<Order | null>(null),
     [error, setError] = useState("");
-  const seconds = useDeadline(order?.expiresAt, order?.serverNow);
+  const seconds = useDeadline(
+    order ? paymentDeadlineIso(order) : undefined,
+    order?.serverNow,
+  );
   useEffect(() => {
     if (!id) return;
     const load = () =>
@@ -1535,7 +1627,11 @@ export function OrderPage({ id }: { id?: string }) {
         <h1>
           Một bó hoa,
           <br />
-          <em>đang được nâng niu.</em>
+          <em>
+            {isDeliveredOrder(order)
+              ? "đã đến người thương."
+              : "đang được nâng niu."}
+          </em>
         </h1>
         <p>
           {order.code} · {humanDate(order.createdAt)}
@@ -1573,9 +1669,6 @@ export function OrderPage({ id }: { id?: string }) {
                   lòng không chuyển tiền theo QR cũ.
                 </p>
               </div>
-              <Link href={`/checkout?reorder=${order.id}`} className="button">
-                Đặt lại <ArrowRight size={16} />
-              </Link>
             </div>
           )}
           <div className="detail-block">
@@ -1597,17 +1690,11 @@ export function OrderPage({ id }: { id?: string }) {
           </div>
           <div className="detail-block">
             <h2>Hành trình của hoa.</h2>
-            <ol className="order-timeline">
-              {order.history?.map((h) => (
-                <li key={h.id}>
-                  <span />
-                  <div>
-                    <strong>{h.text}</strong>
-                    <p>{humanDate(h.createdAt)}</p>
-                  </div>
-                </li>
-              ))}
-            </ol>
+            <OrderJourney
+              status={order.status}
+              fulfillment={order.fulfillment}
+              expired={expired}
+            />
           </div>
           {order.paymentQr && !expired && (
             <PaymentQr
@@ -1617,42 +1704,48 @@ export function OrderPage({ id }: { id?: string }) {
               bank={order.bank}
               accountNumber={order.accountNumber}
               accountName={order.accountName}
-              expiresAt={order.expiresAt}
+              expiresAt={paymentDeadlineIso(order)}
               serverNow={order.serverNow}
             />
           )}
         </div>
         <aside>
-          <div className="order-summary">
-            <h2>Những đóa hoa bạn chọn.</h2>
-            {order.items.map((i) => (
-              <div className="summary-item" key={i.id}>
-                <img src={i.image} alt={i.name} width="62" height="78" />
-                <div>
-                  <strong>{i.name}</strong>
-                  <small>
-                    {i.variantName} × {i.quantity}
-                  </small>
-                  <span>{money(i.price * i.quantity)}</span>
+          <div className="order-summary-stack">
+            <div className="order-summary">
+              <h2>Những đóa hoa bạn chọn.</h2>
+              {order.items.map((i) => (
+                <div className="summary-item" key={i.id}>
+                  <img src={i.image} alt={i.name} width="62" height="78" />
+                  <div>
+                    <strong>{i.name}</strong>
+                    <small>
+                      {i.variantName} × {i.quantity}
+                    </small>
+                    <span>{money(i.price * i.quantity)}</span>
+                  </div>
                 </div>
+              ))}
+              <div className="summary-line">
+                <span>Tiền hoa</span>
+                <strong>{money(order.subtotal)}</strong>
               </div>
-            ))}
-            <div className="summary-line">
-              <span>Tiền hoa</span>
-              <strong>{money(order.subtotal)}</strong>
+              <div className="summary-line">
+                <span>Ưu đãi</span>
+                <strong>−{money(order.discount)}</strong>
+              </div>
+              <div className="summary-line">
+                <span>Giao hoa</span>
+                <strong>{money(order.deliveryFee)}</strong>
+              </div>
+              <div className="summary-line total">
+                <span>Tổng tiền</span>
+                <strong>{money(order.total)}</strong>
+              </div>
             </div>
-            <div className="summary-line">
-              <span>Ưu đãi</span>
-              <strong>−{money(order.discount)}</strong>
-            </div>
-            <div className="summary-line">
-              <span>Giao hoa</span>
-              <strong>{money(order.deliveryFee)}</strong>
-            </div>
-            <div className="summary-line total">
-              <span>Tổng tiền</span>
-              <strong>{money(order.total)}</strong>
-            </div>
+            {order.shippingSnapshot && (
+              <ShippingSummary snapshot={order.shippingSnapshot} />
+            )}
+            <OrderActions order={order} />
           </div>
         </aside>
       </div>

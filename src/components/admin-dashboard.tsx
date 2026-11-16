@@ -1,4 +1,18 @@
 "use client";
+import { FlowerIcon } from "./flower-icon";
+import { ProductEditor } from "./product-editor";
+import { ProductVisibility } from "./product-visibility";
+import { AdminPaymentShare } from "./admin-payment-share";
+import { CopyButton } from "./copy-button";
+import {
+  CollectionsPanel,
+  DeliveryDialog,
+  CollectionOrderDetails,
+  collectionFinance,
+} from "./collections-panel";
+import { ImageUpload } from "./ui/image-upload";
+import { useAutoSlug } from "./ui/use-auto-slug";
+import { taxonomyLabels } from "@/lib/catalogue";
 import {
   orderActions,
   orderLane,
@@ -9,9 +23,10 @@ import { OrderCard } from "./order-card";
 import { CardTemplates } from "./card-templates";
 import { cardWritingLabels } from "@/lib/card-design";
 import { AdminOrderCreate } from "./admin-order-create";
-import { PaymentQr } from "./payment-qr";
 import { canCreateOrder, orderChannels } from "@/lib/order-channels";
-import { isOrderExpired } from "@/lib/order-expiry";
+import { isOrderExpired, isPaymentOverdue } from "@/lib/order-expiry";
+import { ShippingSummary } from "./shipping-summary";
+import { ShippingSettings } from "./shipping-settings";
 import { SepaySettings } from "./sepay-settings";
 import { adminSections } from "./admin-frame";
 import { MembershipAdmin } from "./membership-admin";
@@ -53,7 +68,6 @@ import {
   CreditCard,
   FileText,
   Flame,
-  Flower2,
   Gift,
   GripVertical,
   LayoutDashboard,
@@ -110,6 +124,9 @@ export function AdminDashboard({
     mode: "payment" | "refund";
   } | null>(null);
   const [creatingOrder, setCreatingOrder] = useState(false);
+  const [paymentShareId, setPaymentShareId] = useState<string | null>(null);
+  const [deliveryOrder, setDeliveryOrder] = useState<Order | null>(null);
+  const [taxonomyFilter, setTaxonomyFilter] = useState("ALL");
   const [staff, setStaff] = useState<
     { id: string; name: string; role: string }[]
   >([]);
@@ -204,6 +221,10 @@ export function AdminDashboard({
     }
   }
   async function transition(order: Order, action: string) {
+    if (action === "DELIVER") {
+      setDeliveryOrder(order);
+      return;
+    }
     if (action === "MARK_PAID" || action === "REQUEST_REFUND") {
       setFinancialAction({
         order,
@@ -225,6 +246,15 @@ export function AdminDashboard({
     }
   }
   const rows = (data?.rows ?? []) as Order[];
+  useEffect(() => {
+    if (data?.rows)
+      setOrderDetail((current) =>
+        current
+          ? (data.rows.find((order: Order) => order.id === current.id) ??
+            current)
+          : null,
+      );
+  }, [data]);
   return (
     <>
       <main className="admin-main" id="main-content">
@@ -255,7 +285,14 @@ export function AdminDashboard({
           ].includes(section) && (
             <button
               className="button glass-primary"
-              onClick={() => setEditor({})}
+              disabled={!data || busy}
+              onClick={() =>
+                setEditor(
+                  section === "taxonomies" && taxonomyFilter !== "ALL"
+                    ? { kind: taxonomyFilter }
+                    : {},
+                )
+              }
             >
               <Plus size={16} />
               Thêm mới
@@ -284,7 +321,12 @@ export function AdminDashboard({
         ) : (
           <>
             {(section === "overview" || section === "analytics") && (
-              <Overview data={data} analytics={section === "analytics"} />
+              <Overview
+                data={data}
+                analytics={section === "analytics"}
+                role={role}
+                collectionQuery={searchParams.get("collection") ?? ""}
+              />
             )}
             {(section === "orders" || section === "calendar") && (
               <>
@@ -403,10 +445,16 @@ export function AdminDashboard({
                     {
                       header: "Hiển thị",
                       accessorKey: "active",
-                      cell: ({ getValue }) => (
-                        <span className="status-tag">
-                          {getValue() ? "Đang bán" : "Đã ẩn"}
-                        </span>
+                      cell: ({ row }) => (
+                        <ProductVisibility
+                          id={row.original.id}
+                          name={row.original.name}
+                          active={row.original.active}
+                          onSaved={async () => {
+                            await load();
+                            await refreshCatalog();
+                          }}
+                        />
                       ),
                     },
                     {
@@ -425,11 +473,6 @@ export function AdminDashboard({
                           >
                             Chỉnh sửa
                           </button>
-                          {section === "products" && (
-                            <button onClick={() => archive(row.original.id)}>
-                              Ẩn
-                            </button>
-                          )}
                         </div>
                       ),
                     },
@@ -509,7 +552,7 @@ export function AdminDashboard({
                   <Kpi
                     label="QR đã tạo"
                     value={data.grants}
-                    Icon={Flower2}
+                    Icon={FlowerIcon}
                     note="Từ các đơn hàng"
                   />
                   <Kpi
@@ -599,6 +642,12 @@ export function AdminDashboard({
             )}
             {section === "settings" && (
               <>
+                <ShippingSettings
+                  onSaved={async () => {
+                    await load();
+                    await refreshCatalog();
+                  }}
+                />
                 <SepaySettings role={role} />
                 <CardTemplates />
                 <SettingsForm
@@ -650,33 +699,59 @@ export function AdminDashboard({
               />
             )}
             {section === "taxonomies" && (
-              <DataTable
-                rows={data}
-                columns={[
-                  { header: "Tên", accessorKey: "name" },
-                  { header: "Loại", accessorKey: "kind" },
-                  { header: "Slug", accessorKey: "slug" },
-                  {
-                    header: "Hiển thị",
-                    accessorKey: "active",
-                    cell: ({ getValue }) => (getValue() ? "Đang dùng" : "Ẩn"),
-                  },
-                  {
-                    header: "Thao tác",
-                    id: "actions",
-                    cell: ({ row }) => (
-                      <div className="table-actions">
-                        <button onClick={() => setEditor(row.original)}>
-                          Sửa
-                        </button>
-                        <button onClick={() => archive(row.original.id)}>
-                          Ẩn
-                        </button>
-                      </div>
+              <>
+                <div className="taxonomy-filters" aria-label="Nhóm danh mục">
+                  {[["ALL", "Tất cả"], ...Object.entries(taxonomyLabels)].map(
+                    ([kind, label]) => (
+                      <button
+                        type="button"
+                        key={kind}
+                        aria-pressed={taxonomyFilter === kind}
+                        onClick={() => setTaxonomyFilter(kind)}
+                      >
+                        {label}
+                      </button>
                     ),
-                  },
-                ]}
-              />
+                  )}
+                </div>
+                <DataTable
+                  rows={data.filter(
+                    (item: Row) =>
+                      taxonomyFilter === "ALL" || item.kind === taxonomyFilter,
+                  )}
+                  columns={[
+                    { header: "Tên", accessorKey: "name" },
+                    {
+                      header: "Loại",
+                      accessorKey: "kind",
+                      cell: ({ getValue }) =>
+                        taxonomyLabels[
+                          getValue() as keyof typeof taxonomyLabels
+                        ] ?? String(getValue()),
+                    },
+                    { header: "Slug", accessorKey: "slug" },
+                    {
+                      header: "Hiển thị",
+                      accessorKey: "active",
+                      cell: ({ getValue }) => (getValue() ? "Đang dùng" : "Ẩn"),
+                    },
+                    {
+                      header: "Thao tác",
+                      id: "actions",
+                      cell: ({ row }) => (
+                        <div className="table-actions">
+                          <button onClick={() => setEditor(row.original)}>
+                            Sửa
+                          </button>
+                          <button onClick={() => archive(row.original.id)}>
+                            Ẩn
+                          </button>
+                        </div>
+                      ),
+                    },
+                  ]}
+                />
+              </>
             )}
             {section === "reviews" && (
               <DataTable
@@ -748,40 +823,13 @@ export function AdminDashboard({
             )}
             {section === "delivery" && (
               <>
-                <div className="section-heading">
-                  <h2>Khu vực giao hoa</h2>
-                </div>
-                <DataTable
-                  rows={data.zones}
-                  columns={[
-                    { header: "Khu vực", accessorKey: "name" },
-                    {
-                      header: "Phí giao",
-                      accessorKey: "fee",
-                      cell: ({ getValue }) => money(Number(getValue())),
-                    },
-                    {
-                      header: "Trạng thái",
-                      accessorKey: "active",
-                      cell: ({ getValue }) =>
-                        getValue() ? "Đang nhận" : "Tạm dừng",
-                    },
-                    {
-                      header: "Thao tác",
-                      id: "actions",
-                      cell: ({ row }) => (
-                        <button
-                          className="text-link"
-                          onClick={() =>
-                            setEditor({ ...row.original, type: "zone" })
-                          }
-                        >
-                          Chỉnh sửa
-                        </button>
-                      ),
-                    },
-                  ]}
-                />
+                <p className="admin-notice">
+                  Phí giao hoa được tính theo quãng đường Goong × giá/km.
+                  <Link href="/admin/settings" className="text-link">
+                    {" "}
+                    Cài đặt phí giao hoa
+                  </Link>
+                </p>
                 <div className="section-heading" style={{ marginTop: 30 }}>
                   <h2>Khung giờ & công suất</h2>
                 </div>
@@ -1001,6 +1049,11 @@ export function AdminDashboard({
             onClose={() => setCreatingOrder(false)}
             onSaved={async (order) => {
               setCreatingOrder(false);
+              if (
+                order.paymentMethod === "SEPAY" &&
+                ["UNPAID", "PENDING"].includes(order.paymentStatus)
+              )
+                setPaymentShareId(order.id);
               setQuery("");
               setPage(1);
               await load();
@@ -1011,17 +1064,29 @@ export function AdminDashboard({
             }}
           />
         )}
+        {paymentShareId && (
+          <Modal
+            title="QR chuyển khoản gửi khách"
+            onClose={() => setPaymentShareId(null)}
+          >
+            <AdminPaymentShare orderId={paymentShareId} />
+          </Modal>
+        )}
         {editor && (
           <Modal
             title={editor.id ? "Chăm chút lại một chút" : "Thêm một điều mới"}
             onClose={() => setEditor(null)}
           >
-            <EntityForm
-              section={section}
-              initial={editor}
-              onSave={save}
-              busy={busy}
-            />
+            {section === "products" || section === "inventory" ? (
+              <ProductEditor initial={editor} onSave={save} busy={busy} />
+            ) : (
+              <EntityForm
+                section={section}
+                initial={editor}
+                onSave={save}
+                busy={busy}
+              />
+            )}
           </Modal>
         )}
         {orderDetail && (
@@ -1368,6 +1433,11 @@ export function AdminDashboard({
                         <dd>{money(orderDetail.total)}</dd>
                       </div>
                     </dl>
+                    {orderDetail.shippingSnapshot && (
+                      <ShippingSummary
+                        snapshot={orderDetail.shippingSnapshot}
+                      />
+                    )}
                     <div className="detail-action-field">
                       <span className="detail-label">
                         Trạng thái thanh toán
@@ -1389,6 +1459,10 @@ export function AdminDashboard({
                         role={role}
                       />
                     </div>
+                    {collectionFinance(role) &&
+                      orderDetail.paymentMethod === "COD" && (
+                        <CollectionOrderDetails orderId={orderDetail.id} />
+                      )}
                     {canCreateOrder(role) &&
                       orderDetail.paymentMethod === "SEPAY" &&
                       ["UNPAID", "PENDING"].includes(
@@ -1489,6 +1563,19 @@ export function AdminDashboard({
             </div>
           </Modal>
         )}
+        {deliveryOrder && (
+          <DeliveryDialog
+            order={deliveryOrder}
+            role={role}
+            onClose={() => setDeliveryOrder(null)}
+            onSaved={async () => {
+              setDeliveryOrder(null);
+              setOrderDetail(null);
+              await load();
+              toast("Đã cập nhật giao hàng và thu tiền.");
+            }}
+          />
+        )}
         {financialAction && (
           <OrderFinancialDialog
             order={financialAction.order}
@@ -1584,7 +1671,17 @@ function Kpi({
     </div>
   );
 }
-function Overview({ data, analytics }: { data: Row; analytics: boolean }) {
+function Overview({
+  data,
+  analytics,
+  role,
+  collectionQuery,
+}: {
+  data: Row;
+  analytics: boolean;
+  role: string;
+  collectionQuery: string;
+}) {
   const orders = data.orders as Order[];
   const today = orders.filter(
     (o) =>
@@ -1628,6 +1725,9 @@ function Overview({ data, analytics }: { data: Row; analytics: boolean }) {
           note={`Đã giảm ${money(data.discount)} trên đơn đã trả`}
         />
       </div>
+      {!analytics && collectionFinance(role) && (
+        <CollectionsPanel role={role} initialQuery={collectionQuery} />
+      )}
       {data.paymentReviews > 0 && (
         <div className="admin-notice">
           {data.paymentReviews} giao dịch SePay cần đối soát.{" "}
@@ -1705,7 +1805,7 @@ function Overview({ data, analytics }: { data: Row; analytics: boolean }) {
           {today.slice(0, 4).map((o) => (
             <div className="task-preview" key={o.id}>
               <span>
-                <Flower2 size={17} />
+                <FlowerIcon size={17} />
               </span>
               <div>
                 <strong>{o.buyerName}</strong>
@@ -1806,36 +1906,7 @@ function Overview({ data, analytics }: { data: Row; analytics: boolean }) {
 const actionsFor = orderActions;
 
 function AdminOrderQr({ order }: { order: Order }) {
-  const [data, setData] = useState<{
-    url: string | null;
-    bank: string;
-    accountNumber: string;
-    accountName: string;
-    serverNow: string;
-  } | null>(null);
-  useEffect(() => {
-    let active = true;
-    request<NonNullable<typeof data>>(`admin/orders/${order.id}/payment-qr`)
-      .then((result) => {
-        if (active) setData(result);
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-    };
-  }, [order.id, order.version]);
-  return data?.url ? (
-    <PaymentQr
-      url={data.url}
-      amount={order.total}
-      code={order.code}
-      bank={data.bank}
-      accountNumber={data.accountNumber}
-      accountName={data.accountName}
-      expiresAt={order.expiresAt}
-      serverNow={data.serverNow}
-    />
-  ) : null;
+  return <AdminPaymentShare orderId={order.id} />;
 }
 
 function OrderPaymentControl({
@@ -1849,7 +1920,7 @@ function OrderPaymentControl({
   onTransition: (order: Order, action: string) => Promise<void>;
   compact?: boolean;
 }) {
-  const finance = ["OWNER", "MANAGER"].includes(role);
+  const finance = collectionFinance(role);
   const editable =
     finance &&
     !isOrderExpired(order) &&
@@ -1881,6 +1952,20 @@ function OrderPaymentControl({
       {(order.refundPendingAmount ?? 0) > 0 && !compact && (
         <small>Chờ hoàn {money(order.refundPendingAmount!)}</small>
       )}
+      {order.receivable?.state === "OPEN" && (
+        <small className="collection-badge">
+          {order.receivable.kind === "SHIPPER"
+            ? "Chờ shipper bàn giao"
+            : "Đã giao · Chưa thu tiền"}
+        </small>
+      )}
+      {order.manualPayment &&
+        ["UNPAID", "PENDING"].includes(order.paymentStatus) &&
+        isPaymentOverdue(order) && (
+          <small className="form-error">
+            Quá hạn thanh toán · Cần đối soát nếu đã chuyển tiền
+          </small>
+        )}
       {(order.refundedAmount ?? 0) > 0 && (
         <small>Đã hoàn {money(order.refundedAmount!)}</small>
       )}
@@ -2024,7 +2109,11 @@ function OrderAction({
   onTransition: (order: Order, action: string) => Promise<void>;
   role: string;
 }) {
-  const actions = actionsFor(order, role);
+  const { user } = useShop();
+  const actions =
+    role === "DELIVERY" && order.assignee !== user?.id
+      ? []
+      : actionsFor(order, role);
   if (!actions.length)
     return (
       <span className="small muted">
@@ -2065,12 +2154,15 @@ function orderColumns(
       accessorKey: "code",
       cell: ({ row }) => (
         <div className="order-code-cell">
-          <button
-            className="text-link"
-            onClick={() => onDetail(row.original as Order)}
-          >
-            {row.original.code}
-          </button>
+          <span className="order-code-with-copy">
+            <button
+              className="text-link"
+              onClick={() => onDetail(row.original as Order)}
+            >
+              {row.original.code}
+            </button>
+            <CopyButton value={row.original.code} />
+          </span>
           <small className="order-channel">
             {
               orderChannels[
@@ -2277,7 +2369,10 @@ function KanbanCard({
       }
     >
       <div>
-        <button onClick={() => onDetail(order)}>{order.code}</button>
+        <span className="order-code-with-copy">
+          <button onClick={() => onDetail(order)}>{order.code}</button>
+          <CopyButton value={order.code} />
+        </span>
         <button
           className="drag-handle"
           aria-label={`Kéo đơn ${order.code}`}
@@ -2369,16 +2464,15 @@ function EntityForm({
   onSave: (data: Row) => Promise<void>;
   busy: boolean;
 }) {
-  const [type, setType] = useState(initial.type ?? "zone");
   const { toast, taxonomies, products } = useShop();
-  const [variants, setVariants] = useState<Row[]>(
-    initial.variants ?? [
-      { name: "Vừa xinh", sku: `FL-${Date.now()}`, price: 500000, stock: 20 },
-    ],
+  const type = "slot";
+  const autoSlug = useAutoSlug(
+    initial.name ?? "",
+    initial.slug ?? "",
+    !!initial.id,
   );
-  const [imageValue, setImageValue] = useState(
-    initial.image ?? "/images/roses.webp",
-  );
+  const [taxonomyKind, setTaxonomyKind] = useState(initial.kind ?? "CATEGORY");
+  const [imageValue, setImageValue] = useState(initial.image ?? "");
   const [uploading, setUploading] = useState(false);
   let fields: Field[] = [];
   if (section === "customers" || section === "members")
@@ -2397,77 +2491,12 @@ function EntityForm({
       {
         key: "kind",
         label: "Loại",
-        options: ["CATEGORY", "OCCASION", "COLOR", "COLLECTION"],
+        options: ["CATEGORY", "SIZE", "OCCASION", "COLOR", "COLLECTION"],
       },
       { key: "name", label: "Tên" },
       { key: "slug", label: "Slug (không dấu)" },
       { key: "description", label: "Mô tả", type: "textarea", required: false },
       { key: "image", label: "Ảnh", required: false },
-      { key: "active", label: "Hiển thị", type: "checkbox", default: true },
-    ];
-  if (section === "products" || section === "inventory")
-    fields = [
-      { key: "name", label: "Tên sản phẩm" },
-      { key: "slug", label: "Slug", default: "" },
-      { key: "subtitle", label: "Lời giới thiệu" },
-      { key: "description", label: "Mô tả", type: "textarea" },
-      {
-        key: "image",
-        label: "Ảnh (HTTPS hoặc /images/...)",
-        default: "/images/roses.webp",
-      },
-      {
-        key: "category",
-        label: "Danh mục",
-        options: [
-          ...new Set([
-            ...taxonomies
-              .filter((t) => t.kind === "CATEGORY")
-              .map((t) => t.name),
-            "Bó hoa",
-            "Bình hoa",
-            "Giỏ hoa",
-          ]),
-        ],
-      },
-      {
-        key: "occasion",
-        label: "Dịp tặng",
-        options: [
-          ...new Set([
-            ...taxonomies
-              .filter((t) => t.kind === "OCCASION")
-              .map((t) => t.name),
-            "Sinh nhật",
-            "Kỷ niệm",
-            "Chúc mừng",
-            "Tặng bản thân",
-          ]),
-        ],
-      },
-      {
-        key: "color",
-        label: "Màu chủ đạo",
-        options: [
-          ...new Set([
-            ...taxonomies.filter((t) => t.kind === "COLOR").map((t) => t.name),
-            "Đỏ",
-            "Trắng",
-            "Hồng",
-            "Tím",
-            "Vàng",
-          ]),
-        ],
-      },
-      {
-        key: "price",
-        label: "Giá biến thể đầu (VND)",
-        type: "number",
-        default: 500000,
-      },
-      { key: "stock", label: "Tồn biến thể đầu", type: "number", default: 20 },
-      { key: "badge", label: "Nhãn", required: false },
-      { key: "featured", label: "Sản phẩm nổi bật", type: "checkbox" },
       { key: "active", label: "Hiển thị", type: "checkbox", default: true },
     ];
   if (section === "vouchers")
@@ -2510,50 +2539,33 @@ function EntityForm({
       { key: "active", label: "Hiển thị", type: "checkbox", default: true },
     ];
   if (section === "delivery")
-    fields =
-      type === "zone"
-        ? [
-            { key: "name", label: "Tên khu vực" },
-            {
-              key: "fee",
-              label: "Phí giao VND",
-              type: "number",
-              default: 30000,
-            },
-            {
-              key: "active",
-              label: "Nhận đơn",
-              type: "checkbox",
-              default: true,
-            },
-          ]
-        : [
-            { key: "label", label: "Tên khung giờ", default: "09:00 – 12:00" },
-            {
-              key: "startHour",
-              label: "Giờ bắt đầu",
-              type: "number",
-              default: 9,
-            },
-            {
-              key: "endHour",
-              label: "Giờ kết thúc",
-              type: "number",
-              default: 12,
-            },
-            {
-              key: "capacity",
-              label: "Sức chứa / ngày",
-              type: "number",
-              default: 12,
-            },
-            {
-              key: "active",
-              label: "Nhận đơn",
-              type: "checkbox",
-              default: true,
-            },
-          ];
+    fields = [
+      { key: "label", label: "Tên khung giờ", default: "09:00 – 12:00" },
+      {
+        key: "startHour",
+        label: "Giờ bắt đầu",
+        type: "number",
+        default: 9,
+      },
+      {
+        key: "endHour",
+        label: "Giờ kết thúc",
+        type: "number",
+        default: 12,
+      },
+      {
+        key: "capacity",
+        label: "Sức chứa / ngày",
+        type: "number",
+        default: 12,
+      },
+      {
+        key: "active",
+        label: "Nhận đơn",
+        type: "checkbox",
+        default: true,
+      },
+    ];
   return (
     <form
       className="form-stack"
@@ -2575,191 +2587,115 @@ function EntityForm({
         if (section === "delivery") data.type = type;
         if (section === "taxonomies")
           data.productIds = form.getAll("productIds");
-        if (section === "products" || section === "inventory")
-          data.variants = variants.map((v) => ({
-            id: v.id,
-            name: v.name,
-            sku: v.sku,
-            price: Number(v.price),
-            stock: Number(v.stock),
-          }));
         onSave(data);
       }}
     >
-      {section === "delivery" && !initial.id && (
-        <label>
-          Loại
-          <Select value={type} onChange={(e) => setType(e.target.value)}>
-            <option value="zone">Khu vực</option>
-            <option value="slot">Khung giờ</option>
-          </Select>
-        </label>
-      )}
       <div className="two-columns">
         {fields
           .filter((f) => !["price", "stock"].includes(f.key))
-          .map((f) => (
-            <label
-              key={f.key}
-              className={f.type === "checkbox" ? "checkbox-label" : ""}
-              style={f.type === "textarea" ? { gridColumn: "1/-1" } : undefined}
-            >
-              {f.type === "checkbox" ? (
-                <>
-                  <input
-                    type="checkbox"
-                    name={f.key}
-                    defaultChecked={Boolean(initial[f.key] ?? f.default)}
-                  />
-                  {f.label}
-                </>
-              ) : (
-                <>
-                  {f.label}
-                  {f.key === "image" ? (
-                    <input
-                      name="image"
-                      value={imageValue}
-                      onChange={(e) => setImageValue(e.target.value)}
-                    />
-                  ) : f.options ? (
-                    <Select
-                      name={f.key}
-                      defaultValue={initial[f.key] ?? f.options[0]}
-                    >
-                      {f.options.map((o) => (
-                        <option key={o}>{o}</option>
-                      ))}
-                    </Select>
-                  ) : f.type === "textarea" ? (
-                    <textarea
-                      name={f.key}
-                      rows={5}
-                      defaultValue={initial[f.key] ?? ""}
-                      required={f.required !== false}
-                    />
-                  ) : (
-                    <input
-                      name={f.key}
-                      type={f.type ?? "text"}
-                      defaultValue={
-                        f.type === "date"
-                          ? String(initial[f.key] ?? f.default).slice(0, 10)
-                          : (initial[f.key] ?? f.default ?? "")
-                      }
-                      required={f.required !== false}
-                      min={f.type === "number" ? 0 : undefined}
-                    />
-                  )}
-                </>
-              )}
-            </label>
-          ))}
-      </div>
-      {(section === "products" || section === "inventory") && (
-        <>
-          <label>
-            Hoặc tải ảnh sản phẩm (JPG, PNG, WebP · tối đa 4 MB)
-            <input
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              disabled={uploading}
-              onChange={async (e) => {
-                const file = e.target.files?.[0];
-                if (!file) return;
-                if (file.size > 4 * 1024 * 1024) {
-                  toast("Ảnh tối đa 4 MB.");
-                  return;
-                }
-                setUploading(true);
-                try {
-                  const form = new FormData();
-                  form.set("file", file);
-                  const r = await fetch("/api/admin/media", {
-                    method: "POST",
-                    body: form,
-                  });
-                  const result = await r.json();
-                  if (!r.ok) throw new Error(result.error);
-                  setImageValue(result.url);
-                  toast("Đã tải và tối ưu ảnh.");
-                } catch (e) {
-                  toast((e as Error).message);
-                } finally {
-                  setUploading(false);
-                }
-              }}
-            />
-          </label>
-          <h3 style={{ marginBottom: 0 }}>Size, giá & tồn kho</h3>
-          {variants.map((v, index) => (
-            <div key={v.id ?? index} className="admin-panel">
-              <div className="two-columns">
-                {[
-                  { key: "name", label: "Tên size", type: "text" },
-                  { key: "sku", label: "SKU", type: "text" },
-                  { key: "price", label: "Giá VND", type: "number" },
-                  {
-                    key: "stock",
-                    label: `Tồn (${v.reserved ?? 0} đang giữ)`,
-                    type: "number",
-                  },
-                ].map((f) => (
-                  <label key={f.key}>
-                    {f.label}
-                    <input
-                      required
-                      type={f.type}
-                      min={f.key === "stock" ? (v.reserved ?? 0) : 0}
-                      value={v[f.key]}
-                      onChange={(e) =>
-                        setVariants(
-                          variants.map((item, i) =>
-                            i === index
-                              ? { ...item, [f.key]: e.target.value }
-                              : item,
-                          ),
-                        )
-                      }
-                    />
-                  </label>
-                ))}
+          .map((f) =>
+            f.key === "image" ? (
+              <div key={f.key} className="catalog-full-width">
+                <ImageUpload
+                  value={imageValue}
+                  onChange={setImageValue}
+                  label={f.label}
+                  required={f.required !== false}
+                  onBusyChange={setUploading}
+                />
               </div>
-              {!v.id && variants.length > 1 && (
-                <button
-                  className="text-link"
-                  type="button"
-                  onClick={() =>
-                    setVariants(variants.filter((_, i) => i !== index))
-                  }
-                >
-                  Bỏ size mới
-                </button>
-              )}
-            </div>
-          ))}
-          <button
-            type="button"
-            className="text-link"
-            disabled={variants.length >= 10}
-            onClick={() =>
-              setVariants([
-                ...variants,
-                {
-                  name: "Size mới",
-                  sku: `FL-${Date.now()}`,
-                  price: 500000,
-                  stock: 10,
-                },
-              ])
-            }
-          >
-            <Plus size={16} />
-            Thêm size
-          </button>
-        </>
-      )}
-      {section === "taxonomies" && (
+            ) : (
+              <label
+                key={f.key}
+                className={f.type === "checkbox" ? "checkbox-label" : ""}
+                style={
+                  f.type === "textarea" ? { gridColumn: "1/-1" } : undefined
+                }
+              >
+                {f.type === "checkbox" ? (
+                  <>
+                    <input
+                      type="checkbox"
+                      name={f.key}
+                      defaultChecked={Boolean(initial[f.key] ?? f.default)}
+                    />
+                    {f.label}
+                  </>
+                ) : (
+                  <>
+                    {f.label}
+                    {section === "taxonomies" && f.key === "name" ? (
+                      <input
+                        name="name"
+                        value={autoSlug.name}
+                        onChange={(e) => autoSlug.changeName(e.target.value)}
+                        required
+                        maxLength={100}
+                      />
+                    ) : section === "taxonomies" && f.key === "slug" ? (
+                      <>
+                        <input
+                          name="slug"
+                          value={autoSlug.slug}
+                          onChange={(e) => autoSlug.changeSlug(e.target.value)}
+                          required
+                        />
+                        <button
+                          type="button"
+                          className="text-link"
+                          onClick={autoSlug.resetSlug}
+                        >
+                          Tạo lại slug từ tên
+                        </button>
+                      </>
+                    ) : f.options ? (
+                      <Select
+                        name={f.key}
+                        defaultValue={initial[f.key] ?? f.options[0]}
+                        {...(f.key === "kind" && section === "taxonomies"
+                          ? {
+                              value: taxonomyKind,
+                              onChange: (
+                                e: React.ChangeEvent<HTMLSelectElement>,
+                              ) => setTaxonomyKind(e.target.value),
+                            }
+                          : {})}
+                      >
+                        {f.options.map((o) => (
+                          <option key={o} value={o}>
+                            {section === "taxonomies" && f.key === "kind"
+                              ? taxonomyLabels[o as keyof typeof taxonomyLabels]
+                              : o}
+                          </option>
+                        ))}
+                      </Select>
+                    ) : f.type === "textarea" ? (
+                      <textarea
+                        name={f.key}
+                        rows={5}
+                        defaultValue={initial[f.key] ?? ""}
+                        required={f.required !== false}
+                      />
+                    ) : (
+                      <input
+                        name={f.key}
+                        type={f.type ?? "text"}
+                        defaultValue={
+                          f.type === "date"
+                            ? String(initial[f.key] ?? f.default).slice(0, 10)
+                            : (initial[f.key] ?? f.default ?? "")
+                        }
+                        required={f.required !== false}
+                        min={f.type === "number" ? 0 : undefined}
+                      />
+                    )}
+                  </>
+                )}
+              </label>
+            ),
+          )}
+      </div>
+      {section === "taxonomies" && taxonomyKind === "COLLECTION" && (
         <fieldset
           style={{ border: "1px solid #dfd1c5", borderRadius: 10, padding: 15 }}
         >
@@ -2804,13 +2740,18 @@ function SettingsForm({
       fields: [
         { key: "shopName", label: "Tên cửa hàng" },
         { key: "phone", label: "Điện thoại" },
-        { key: "address", label: "Địa chỉ" },
+
         {
           key: "minimumLeadHours",
           label: "Đặt trước tối thiểu (giờ)",
           type: "number",
         },
         { key: "codEnabled", label: "Cho phép COD", type: "checkbox" },
+        {
+          key: "manualPaymentHours",
+          label: "Hạn thanh toán đơn thủ công (giờ, 0 = không giới hạn)",
+          type: "number",
+        },
         {
           key: "blackoutDates",
           label: "Ngày nghỉ (YYYY-MM-DD, ngăn cách bằng dấu phẩy)",
@@ -2825,6 +2766,67 @@ function SettingsForm({
           key: "memberEnabled",
           label: "Cho đăng ký / mua gói mới",
           type: "checkbox",
+        },
+      ],
+    },
+    {
+      title: "Công nợ COD & nhắc thu",
+      note: "Theo giờ Hà Nội. Hạn thu tính từ lúc giao thực tế; nhắc lại không thay đổi hạn thu. Chỉ thông báo nội bộ cho quản lý và kế toán.",
+      fields: [
+        {
+          key: "collectionRemindersEnabled",
+          label: "Bật nhắc công nợ",
+          type: "checkbox",
+        },
+        {
+          key: "collectionPushEnabled",
+          label: "Gửi push thiết bị",
+          type: "checkbox",
+        },
+        {
+          key: "collectionNotifyAccountant",
+          label: "Thông báo cho kế toán (quản lý luôn nhận)",
+          type: "checkbox",
+        },
+        {
+          key: "collectionDueHours",
+          label: "Hạn thu khách sau giao (giờ, 0 = ngay khi giao)",
+          type: "number",
+        },
+        {
+          key: "collectionShipperDueHours",
+          label: "Hạn shipper bàn giao sau thu hộ (giờ)",
+          type: "number",
+        },
+        {
+          key: "collectionFirstReminderHours",
+          label: "Nhắc lần đầu sau hạn thu (giờ)",
+          type: "number",
+        },
+        {
+          key: "collectionPriorityHours",
+          label: "Đánh dấu ưu tiên khi quá hạn (giờ)",
+          type: "number",
+        },
+        {
+          key: "collectionEscalationHours",
+          label: "Báo quản lý khi quá hạn (giờ)",
+          type: "number",
+        },
+        {
+          key: "collectionDigestHour",
+          label: "Giờ tổng hợp mỗi ngày (0–23)",
+          type: "number",
+        },
+        {
+          key: "collectionWorkStart",
+          label: "Giờ bắt đầu gửi nhắc (0–23)",
+          type: "number",
+        },
+        {
+          key: "collectionWorkEnd",
+          label: "Giờ kết thúc gửi nhắc (1–24)",
+          type: "number",
         },
       ],
     },
@@ -2880,7 +2882,7 @@ function SettingsForm({
       onSubmit={async (e) => {
         e.preventDefault();
         const fields = new FormData(e.currentTarget);
-        const settings: Row = {};
+        const settings: Row = { ...data.settings };
         for (const g of groups)
           for (const f of g.fields)
             settings[f.key] =

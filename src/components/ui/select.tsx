@@ -123,7 +123,6 @@ export function Select({
     const next = encoded.slice("option:".length);
     const control = native.current;
     if (!control) return;
-    if (value === undefined) setUncontrolledValue(next);
     // A genuine select change preserves FormData and ancestor onChange handlers
     // (checkout uses them to invalidate a previously calculated quote).
     Object.getOwnPropertyDescriptor(
@@ -139,6 +138,11 @@ export function Select({
       className={`select-field ${className ?? ""}`}
       style={style}
       data-disabled={isDisabled ? "" : undefined}
+      onChange={(event) => {
+        // Only our named native control should notify the parent form; Radix
+        // also renders an unnamed select and bubbles its encoded value.
+        if (event.target !== native.current) event.stopPropagation();
+      }}
     >
       <SelectPrimitive.Root
         value={`option:${selectedValue}`}
@@ -215,7 +219,13 @@ export function Select({
         value={selectedValue}
         tabIndex={-1}
         aria-hidden="true"
-        onChange={onChange}
+        onChange={(event) => {
+          // This native bridge is always controlled by Select, including when
+          // its caller uses defaultValue and supplies no change callback.
+          if (value === undefined)
+            setUncontrolledValue(event.currentTarget.value);
+          onChange?.(event);
+        }}
         onInvalid={(event) => {
           event.preventDefault();
           trigger?.focus();

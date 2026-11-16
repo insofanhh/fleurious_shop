@@ -12,6 +12,7 @@ import { confirmOrderPaymentTx } from "./order-payments";
 import { canCreateOrder, orderChannels } from "./order-channels";
 import { fail } from "./errors";
 import { dayKey } from "./time";
+import { getSettings } from "./settings";
 
 export const adminOrderSchema = checkoutSchema.extend({
   buyerEmail: z.union([z.email().max(200), z.literal("")]).default(""),
@@ -30,7 +31,27 @@ export const adminOrderSchema = checkoutSchema.extend({
   initialPayment: z.enum(["UNPAID", "PAID"]).default("UNPAID"),
   paymentReference: z.string().trim().max(100).default(""),
   paymentReason: z.string().trim().max(300).default(""),
+  paymentTermMinutes: z.number().int().min(15).max(43200).nullable().optional(),
 });
+export const adminQuoteSchema = adminOrderSchema
+  .pick({
+    items: true,
+    zoneId: true,
+    locationId: true,
+    shippingQuoteId: true,
+    addressDetails: true,
+    address: true,
+    manualShipping: true,
+    deliveryDay: true,
+    slotId: true,
+    paymentMethod: true,
+    useMember: true,
+    rewardId: true,
+    voucherCode: true,
+    customerId: true,
+    initialStage: true,
+  })
+  .extend({ address: z.string().max(800).optional() });
 export function requireOrderCreator(actor: Pick<User, "role">) {
   if (!canCreateOrder(actor.role))
     fail("FORBIDDEN", "Chỉ Owner/Manager được tạo đơn tại quản trị.", 403);
@@ -46,15 +67,6 @@ function validateState(input: z.infer<typeof adminOrderSchema>) {
       "PAYMENT_EVIDENCE_REQUIRED",
       "Đơn đã thu tiền cần mã giao dịch/phiếu thu và ghi chú xác minh (ít nhất 4 ký tự).",
     );
-  if (
-    ((input.paymentMethod === "SEPAY" && input.initialStage !== "PENDING") ||
-      input.initialStage === "DELIVERED") &&
-    input.initialPayment !== "PAID"
-  )
-    fail(
-      "PAYMENT_REQUIRED",
-      "Cần xác nhận đã thu tiền trước khi giao xong hoặc chuẩn bị đơn SePay.",
-    );
   if (input.rewardId)
     fail(
       "INVALID_DISCOUNT",
@@ -62,7 +74,7 @@ function validateState(input: z.infer<typeof adminOrderSchema>) {
     );
 }
 async function customer(
-  input: z.infer<typeof adminOrderSchema>,
+  input: { customerId?: string },
   client: Tx | typeof db,
 ) {
   if (!input.customerId) return null;
@@ -75,10 +87,18 @@ async function customer(
 }
 export async function quoteAdminOrder(raw: unknown, actor: User) {
   requireOrderCreator(actor);
-  const input = adminOrderSchema.parse(raw);
-  validateState(input);
+  const input = adminQuoteSchema.parse(raw);
+  if (input.rewardId)
+    fail(
+      "INVALID_DISCOUNT",
+      "Chọn ưu đãi hội viên hoặc mã giảm giá khi tạo đơn tại quản trị.",
+    );
+  if (input.initialStage === "DELIVERED" && input.deliveryDay !== dayKey())
+    fail("INVALID_DELIVERY_DAY", "Ngày giao của đơn đã giao phải là hôm nay.");
   const q = await quote(input, await customer(input, db), db, {
     allowPastSlot: input.initialStage !== "PENDING",
+    shippingOwner: `user:${actor.id}`,
+    allowManualShipping: true,
   });
   return {
     subtotal: q.subtotal,
@@ -104,12 +124,29 @@ export async function createAdminOrder(raw: unknown, actor: User) {
     if (input.expectedTotal === undefined)
       fail("QUOTE_REQUIRED", "Kiểm tra tổng tiền trước khi tạo đơn.");
     const buyer = await customer(input, tx);
+    const settings = await getSettings(tx);
+    const minutes =
+      input.paymentTermMinutes === undefined
+        ? settings.manualPaymentHours * 60
+        : input.paymentTermMinutes;
     let order = await createOrderTx(tx, input, buyer, `admin:${actor.id}`, {
       source: input.source,
       createdBy: actor.id,
       notify: false,
+      shippingOwner: `user:${actor.id}`,
+      allowManualShipping: true,
       allowPastSlot: input.initialStage !== "PENDING",
+      paymentDueAt: minutes ? new Date(Date.now() + minutes * 60000) : null,
     });
+    if (input.manualShipping)
+      await tx.audit.create({
+        data: {
+          actorId: actor.id,
+          action: "order.shipping_override",
+          entityId: order.id,
+          detail: input.manualShipping,
+        },
+      });
     if (input.initialPayment === "PAID")
       order = await confirmOrderPaymentTx(
         tx,
@@ -131,7 +168,8 @@ export async function createAdminOrder(raw: unknown, actor: User) {
       "DELIVERED",
     ];
     const actions = ["CONFIRM", "PREPARE", "READY", "DISPATCH", "DELIVER"];
-    for (const action of actions.slice(0, stages.indexOf(input.initialStage)))
+    for (const action of actions.slice(0, stages.indexOf(input.initialStage))) {
+      if (action === "CONFIRM" && order.status !== "PENDING") continue;
       order = await transitionOrderTx(
         tx,
         order.id,
@@ -140,6 +178,7 @@ export async function createAdminOrder(raw: unknown, actor: User) {
         actor,
         false,
       );
+    }
     await tx.orderHistory.create({
       data: {
         orderId: order.id,

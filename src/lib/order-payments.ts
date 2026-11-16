@@ -3,9 +3,12 @@ import type { User } from "@prisma/client";
 import { atomic, type Tx } from "./transaction";
 import { fail } from "./errors";
 import { consumeBenefits, stopOrderForRefund } from "./commerce";
-import { stoppedOrderStatuses } from "./order-workflow";
+import { stoppedOrderStatuses, statusAfterPayment } from "./order-workflow";
 import { queuePurchase } from "./analytics";
 import { recordMembershipRefund, recordMembershipSpend } from "./membership";
+import { receiptSchema, recordCodReceiptTx } from "./collections";
+import { unlockQr } from "./commerce";
+import { getSettings } from "./settings";
 
 function financialActor(actor: Pick<User, "role">) {
   if (!["OWNER", "MANAGER", "ACCOUNTANT"].includes(actor.role))
@@ -34,11 +37,7 @@ async function changed(
       },
     });
 }
-export const manualPaymentSchema = z.object({
-  version: z.number().int().positive(),
-  reason: z.string().trim().min(4).max(300),
-  reference: z.string().trim().min(4).max(100),
-});
+export const manualPaymentSchema = receiptSchema;
 export async function confirmOrderPayment(
   id: string,
   raw: unknown,
@@ -76,26 +75,45 @@ export async function confirmOrderPaymentTx(
       "INVALID_PAYMENT_STATE",
       "Không thể xác nhận tiền cho đơn đã dừng hoặc hoàn tiền.",
     );
-  if (order.status === "PENDING" && order.expiresAt <= new Date())
+  if (
+    !order.manualPayment &&
+    order.status === "PENDING" &&
+    order.expiresAt <= new Date()
+  )
     fail(
       "ORDER_EXPIRED",
       "Đơn đã hết hạn giữ hàng. Không thể xác nhận tiền; cần đối soát hoặc tạo đơn mới.",
     );
   await consumeBenefits(tx, order);
+  await recordCodReceiptTx(tx, order, input, actor);
   const updated = await tx.order.update({
     where: { id },
     data: {
       paymentStatus: "PAID",
+      status: statusAfterPayment(order.status),
+      paidAt: new Date(),
       version: { increment: 1 },
       history: {
-        create: {
-          text: `Đã nhận đủ ${order.total.toLocaleString("vi-VN")} VND · xác nhận thủ công · ${input.reference}`,
-        },
+        create: [
+          {
+            text: `Đã nhận đủ ${order.total.toLocaleString("vi-VN")} VND · xác nhận thủ công · ${input.reference}`,
+          },
+          ...(order.status === "PENDING"
+            ? [{ text: "Tự động xác nhận đơn sau thanh toán · Chờ chuẩn bị" }]
+            : []),
+        ],
       },
     },
   });
   await queuePurchase(tx, id);
   if (order.fulfillment === "DELIVERED") await recordMembershipSpend(tx, id);
+  const settings = await getSettings(tx);
+  if (
+    order.paymentMethod === "SEPAY" &&
+    updated.status !== "PENDING" &&
+    settings.qrTrigger === "CONFIRMED"
+  )
+    await unlockQr(tx, id, settings);
   await tx.audit.create({
     data: {
       actorId: actor.id,
@@ -104,6 +122,28 @@ export async function confirmOrderPaymentTx(
       detail: { ...input, amount: order.total, method: order.paymentMethod },
     },
   });
+  // A verified late transfer may already exist in the review inbox. Resolve
+  // only an unambiguous order/amount/bank-reference match, never a second receipt.
+  if (order.paymentMethod === "SEPAY") {
+    const reviews = await tx.payment.findMany({
+      where: {
+        orderId: id,
+        amount: order.total,
+        reference: input.reference,
+        state: "REVIEW",
+      },
+      take: 2,
+    });
+    if (reviews.length === 1)
+      await tx.payment.update({
+        where: { id: reviews[0].id },
+        data: {
+          state: "MATCHED",
+          reason:
+            "Đã đối soát thủ công theo mã tham chiếu ngân hàng và phiếu xác nhận thu tiền.",
+        },
+      });
+  }
   if (notify)
     await changed(
       tx,

@@ -1,0 +1,123 @@
+.order-journey {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  margin: 28px 0;
+}
+.order-journey li {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+  color: #8b7c71;
+  font-size: 11px;
+  min-width: 0;
+}
+.journey-icon {
+  position: relative;
+  z-index: 1;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border: 1px solid #e8dbcf;
+  border-radius: 50%;
+  background: #f6efe7;
+  display: grid;
+  place-items: center;
+}
+.order-journey .done {
+  color: var(--wine);
+}
+.order-journey .done .journey-icon {
+  background: var(--wine);
+  color: var(--cream, #f4eade);
+  border-color: var(--wine);
+}
+.order-journey .current .journey-icon {
+  box-shadow: 0 0 0 4px #ead3d3;
+}
+.journey-label {
+  padding: 0 4px;
+  line-height: 1.6;
+}
+.journey-label small {
+  display: block;
+  font-size: 10px;
+  margin-top: 5px;
+}
+.journey-line {
+  position: absolute;
+  top: 19px;
+  left: calc(50% + 24px);
+  width: calc(100% - 48px);
+  height: 2px;
+  background: #e9dfd6;
+  overflow: hidden;
+}
+.journey-line.running::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    #a52c40,
+    var(--wine),
+    transparent
+  );
+  transform: translateX(-100%);
+  animation: journey-flow 1.8s ease-in-out infinite;
+}
+@keyframes journey-flow {
+  to {
+    transform: translateX(100%);
+  }
+}
+.journey-stopped {
+  border-radius: 12px;
+  padding: 16px;
+  background: #f4eade;
+  line-height: 1.7;
+}
+@media (max-width: 600px) {
+  .order-journey {
+    grid-template-columns: 1fr;
+  }
+  .order-journey li {
+    flex-direction: row;
+    text-align: left;
+    gap: 16px;
+    padding: 10px 0;
+    font-size: 12px;
+    min-height: 64px;
+  }
+  .journey-label {
+    padding: 0;
+  }
+  .journey-line {
+    top: 54px;
+    left: 19px;
+    width: 2px;
+    height: calc(100% - 44px);
+  }
+  .journey-line.running::after {
+    background: linear-gradient(transparent, #a52c40, var(--wine), transparent);
+    transform: translateY(-100%);
+    animation-name: journey-flow-vertical;
+  }
+}
+@keyframes journey-flow-vertical {
+  to {
+    transform: translateY(100%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .journey-line.running::after {
+    animation: none;
+    transform: none;
+    background: #a52c4080;
+  }
+}

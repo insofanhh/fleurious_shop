@@ -40,6 +40,8 @@ model User {
   addresses Address[]
   notifications Notification[]
   pushes PushSubscription[]
+  collections CodReceivable[]
+  collectionsReceived OrderReceipt[]
 }
 model GoogleLoginAttempt {
   id String @id @db.VarChar(64)
@@ -132,8 +134,14 @@ model Address {
   userId String
   name String
   phone String
-  address String
-  zoneId String
+  address String @db.VarChar(800)
+  zoneId String?
+  placeId String? @db.VarChar(2048)
+  formattedAddress String? @db.VarChar(500)
+  addressDetails String @default("") @db.VarChar(200)
+  latitude Decimal? @db.Decimal(10, 7)
+  longitude Decimal? @db.Decimal(10, 7)
+  verifiedAt DateTime?
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 model DeliveryZone {
@@ -171,13 +179,18 @@ model Order {
   buyerEmail String @db.VarChar(254)
   recipientName String
   recipientPhone String
-  address String
-  zoneId String
+  address String @db.VarChar(800)
+  zoneId String?
+  shippingMethod String @default("ZONE") @db.VarChar(20)
+  shippingSnapshot Json?
+  shippingQuoteId String?
   deliveryDay String
   slotId String
   slotLabel String
   deliveryStart DateTime?
   deliveryEnd DateTime?
+  deliveredAt DateTime?
+  paidAt DateTime?
   cardMessage String @db.Text
   cardWritingMode String @default("AUTO")
   note String @db.Text
@@ -185,6 +198,8 @@ model Order {
   fulfillment String @default("UNASSIGNED")
   paymentStatus String @default("UNPAID")
   paymentMethod String
+  manualPayment Boolean @default(false)
+  paymentDueAt DateTime?
   subtotal Int
   discount Int @default(0)
   deliveryFee Int
@@ -205,9 +220,86 @@ model Order {
   qr QrGrant?
   payments Payment[]
   refunds Refund[]
+  receivable CodReceivable?
+  receipt OrderReceipt?
   @@index([deliveryDay, fulfillment])
   @@index([userId, createdAt])
   @@index([paymentStatus, expiresAt])
+}
+model ShippingLocation {
+  id String @id @default(cuid())
+  owner String @db.VarChar(150)
+  placeId String @db.VarChar(2048)
+  address String @db.VarChar(500)
+  latitude Decimal @db.Decimal(10, 7)
+  longitude Decimal @db.Decimal(10, 7)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  @@index([expiresAt])
+}
+model ShippingQuote {
+  id String @id @default(cuid())
+  owner String @db.VarChar(150)
+  destinationKey String @db.VarChar(64)
+  policyVersion Int
+  fee Int
+  snapshot Json
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  @@index([owner, destinationKey, policyVersion, expiresAt])
+  @@index([expiresAt])
+}
+model ShippingRouteCache {
+  key String @id @db.VarChar(64)
+  distanceMeters Int
+  durationSeconds Int
+  expiresAt DateTime
+  @@index([expiresAt])
+}
+model CodReceivable {
+  id String @id @default(cuid())
+  orderId String @unique
+  kind String @default("CUSTOMER") @db.VarChar(20)
+  state String @default("OPEN") @db.VarChar(20)
+  amount Int
+  payerName String @db.VarChar(100)
+  payerPhone String @default("") @db.VarChar(30)
+  ownerId String?
+  dueAt DateTime
+  nextReminderAt DateTime
+  lastContactAt DateTime?
+  note String @default("") @db.VarChar(500)
+  settledAt DateTime?
+  createdAt DateTime @default(now())
+  order Order @relation(fields: [orderId], references: [id])
+  owner User? @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  events CollectionEvent[]
+  @@index([state, dueAt])
+  @@index([state, nextReminderAt])
+}
+model OrderReceipt {
+  id String @id @default(cuid())
+  orderId String @unique
+  amount Int
+  destination String @db.VarChar(20)
+  collectorId String?
+  actorId String
+  reference String @db.VarChar(100)
+  receivedAt DateTime @default(now())
+  remittedAt DateTime?
+  remittanceReference String @default("") @db.VarChar(100)
+  order Order @relation(fields: [orderId], references: [id])
+  collector User? @relation(fields: [collectorId], references: [id], onDelete: SetNull)
+}
+model CollectionEvent {
+  id String @id @default(cuid())
+  receivableId String
+  actorId String
+  action String @db.VarChar(40)
+  note String @db.VarChar(500)
+  createdAt DateTime @default(now())
+  receivable CodReceivable @relation(fields: [receivableId], references: [id])
+  @@index([receivableId, createdAt])
 }
 model OrderItem {
   id String @id @default(cuid())

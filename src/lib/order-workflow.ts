@@ -6,9 +6,20 @@ type WorkflowOrder = {
   fulfillment: string;
   paymentStatus: string;
   paymentMethod: string;
+  manualPayment?: boolean;
   refundPendingAmount?: number;
 };
 export const stoppedOrderStatuses = ["CANCELLED", "REFUND_PENDING", "REFUNDED"];
+export function isDeliveredOrder(order: {
+  status: string;
+  fulfillment: string;
+}) {
+  return order.status === "COMPLETED" && order.fulfillment === "DELIVERED";
+}
+/** Payment confirms a new order; preparation/delivery progress is never reset. */
+export function statusAfterPayment(status: string) {
+  return status === "PENDING" ? "CONFIRMED" : status;
+}
 export function hasReceivedPayment(
   order: Pick<WorkflowOrder, "paymentStatus">,
 ) {
@@ -44,6 +55,7 @@ export function orderActions(o: WorkflowOrder, role: string) {
     if (
       o.status === "PENDING" &&
       (o.paymentMethod === "COD" ||
+        o.manualPayment ||
         ["PAID", "PARTIALLY_REFUNDED"].includes(o.paymentStatus))
     )
       actions.push({ value: "CONFIRM", label: "Xác nhận đơn" });
@@ -56,10 +68,7 @@ export function orderActions(o: WorkflowOrder, role: string) {
     if (o.fulfillment === "OUT_FOR_DELIVERY")
       actions.push({
         value: "DELIVER",
-        label:
-          o.paymentMethod === "COD" && !hasReceivedPayment(o)
-            ? "Đã giao & thu tiền"
-            : "Đã giao thành công",
+        label: "Đã giao thành công",
       });
     if (
       finance &&

@@ -41,9 +41,9 @@
 .select-field .select-trigger:focus-visible,
 .select-field .select-trigger[data-state="open"] {
   outline: none;
-  border-color: var(--wine);
+  border-color: #b6a592;
   box-shadow:
-    0 0 0 3px #6e142310,
+    0 0 0 3px #b6a59220,
     inset 0 1px 0 #fff9;
 }
 .select-field .select-trigger:active:not(:disabled) {

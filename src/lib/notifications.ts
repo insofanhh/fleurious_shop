@@ -2,6 +2,7 @@ import type { Outbox, Prisma } from "@prisma/client";
 import { db } from "./db";
 import { can } from "./auth-policy";
 import { dayKey, money } from "./time";
+import { notifyCollectionOpened } from "./collections";
 
 const staffRoles = [
   "OWNER",
@@ -113,6 +114,8 @@ export async function projectStaffNotification(event: Outbox) {
       `${money(order.total)} · ${labels[order.status] ?? order.status} · ${labels[order.fulfillment] ?? order.fulfillment} · ${labels[order.paymentStatus] ?? order.paymentStatus}`,
       `/admin/orders?q=${encodeURIComponent(order.code)}`,
     );
+    if (order.fulfillment === "DELIVERED")
+      await notifyCollectionOpened(order.id);
   } else if (event.event === "user.registered" && event.userId) {
     const user = await db.user.findUnique({ where: { id: event.userId } });
     if (user)

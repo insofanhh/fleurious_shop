@@ -1,19 +1,22 @@
 "use client";
+import { FlowerIcon } from "./flower-icon";
+import { PromiseStrip } from "./promise-strip";
 import { NotificationInbox } from "./notification-center";
+import { OrderTracking } from "./order-tracking";
 import { Select } from "./ui/select";
+import { MasonryGrid } from "./ui/masonry-grid";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
-import { motion } from "motion/react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowDown,
   ArrowRight,
   ArrowUpRight,
   Check,
   ChevronDown,
-  Flower2,
   Heart,
   LayoutGrid,
+  Columns2,
   ListFilter,
   Minus,
   Plus,
@@ -22,7 +25,6 @@ import {
   Sparkles,
   Truck,
   ShieldCheck,
-  Leaf,
   Flame,
 } from "lucide-react";
 import { useShop } from "./shop-provider";
@@ -49,11 +51,7 @@ export function ProductCard({
   const { favorite, favorites, add } = useShop();
   const variant = product.variants[0];
   return (
-    <motion.article
-      layout="position"
-      transition={{ duration: 0.22 }}
-      className={`product-card product-height-${index % 4}`}
-    >
+    <article className="product-card">
       <div className="product-image-wrap">
         <Link href={`/flowers/${product.slug}`} className="product-image-link">
           <img
@@ -94,7 +92,7 @@ export function ProductCard({
         </Link>
         <span>{money(variant.price)}</span>
       </div>
-    </motion.article>
+    </article>
   );
 }
 export function Storefront({ segments }: { segments: string[] }) {
@@ -121,6 +119,7 @@ export function Storefront({ segments }: { segments: string[] }) {
   if (first === "auth") return <AuthPage mode={second ?? "login"} />;
   if (first === "account") return <AccountPage section={second} />;
   if (first === "orders") return <OrderPage id={second} />;
+  if (first === "track-order") return <OrderTracking />;
   if (first === "q") return <QrPage token={second} />;
   return <ContentPage slug={first} />;
 }
@@ -188,7 +187,7 @@ function Home() {
           <span className="hero-round-seal">
             HANDPICKED
             <br />
-            <Flower2 size={27} strokeWidth={1} />
+            <FlowerIcon size={27} strokeWidth={1} />
             <span>WITH LOVE</span>
           </span>
           <div className="hero-photo-note glass">
@@ -203,20 +202,7 @@ function Home() {
           </span>
         </div>
       </section>
-      <div className="promise-strip">
-        <span>
-          <Flower2 /> Hoa tươi chọn mỗi ngày
-        </span>
-        <span>
-          <Truck /> Giao tận tay tại Hà Nội
-        </span>
-        <span>
-          <Heart /> Thiệp viết tay, gửi lời thương
-        </span>
-        <span>
-          <Leaf /> Nâng niu từng chi tiết
-        </span>
-      </div>
+      <PromiseStrip />
       <section className="section container">
         <div className="section-heading">
           <div>
@@ -287,11 +273,11 @@ function Home() {
             Ghé thăm vườn hoa <ArrowUpRight size={18} />
           </Link>
         </div>
-        <div className="product-grid editorial">
-          {products.slice(0, 4).map((p, i) => (
+        <MasonryGrid previewRows={2}>
+          {products.slice(0, 8).map((p, i) => (
             <ProductCard key={p.id} product={p} index={i} />
           ))}
-        </div>
+        </MasonryGrid>
         <div className="center mobile-only">
           <Link href="/flowers" className="text-link">
             Xem tất cả hoa <ArrowRight size={17} />
@@ -323,7 +309,7 @@ function Home() {
           </p>
           <div className="benefit-row">
             <span>
-              <Flower2 />
+              <FlowerIcon />
               {baseMember?.quota ?? settings.memberQuota} đơn ưu đãi mỗi tháng
             </span>
             <span>
@@ -512,6 +498,44 @@ function Catalogue({
       collectionTaxonomy,
     ],
   );
+  const sentinel = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    setLimit(8);
+  }, [
+    search,
+    category,
+    occasion,
+    color,
+    budget,
+    sort,
+    collection,
+    favoritesOnly,
+  ]);
+  useEffect(() => {
+    const element = sentinel.current;
+    if (
+      !element ||
+      limit >= filtered.length ||
+      !("IntersectionObserver" in window)
+    )
+      return;
+    let loaded = false;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!loaded && entries.some((entry) => entry.isIntersecting)) {
+          loaded = true;
+          observer.disconnect();
+          setLimit((value) => Math.min(value + 8, filtered.length));
+        }
+      },
+      { rootMargin: "400px 0px" },
+    );
+    observer.observe(element);
+    return () => {
+      loaded = true;
+      observer.disconnect();
+    };
+  }, [limit, filtered]);
   return (
     <section className="container catalogue section">
       <div className="breadcrumb">
@@ -564,17 +588,17 @@ function Catalogue({
           </button>
           <button
             className="icon-button"
-            aria-label="Đổi bố cục"
+            aria-label={grid ? "Xem bố cục so le" : "Xem lưới đều"}
+            title={grid ? "Xem bố cục so le" : "Xem lưới đều"}
             onClick={() => setGrid(!grid)}
           >
-            <LayoutGrid size={18} />
+            {grid ? <Columns2 size={18} /> : <LayoutGrid size={18} />}
           </button>
           <Select
             aria-label="Sắp xếp sản phẩm"
             value={sort}
             onChange={(e) => {
               setSort(e.target.value);
-              if (e.target.value !== "featured") setGrid(true);
             }}
           >
             <option value="featured">Được yêu thích</option>
@@ -645,23 +669,27 @@ function Catalogue({
         )}
       </div>
       {filtered.length ? (
-        <div className={`product-grid ${grid ? "uniform" : "editorial"}`}>
+        <MasonryGrid enabled={!grid}>
           {filtered.slice(0, limit).map((p, i) => (
             <ProductCard key={p.id} product={p} index={i} />
           ))}
-        </div>
+        </MasonryGrid>
       ) : (
         <div className="empty-state">
-          <Flower2 size={40} />
+          <FlowerIcon size={40} />
           <h2>Chưa tìm thấy đóa hoa này.</h2>
           <p>Thử một từ khóa hoặc ngân sách khác nhé.</p>
         </div>
       )}
       {filtered.length > limit && (
-        <div className="center">
+        <div className="catalogue-sentinel" ref={sentinel}>
+          <p role="status">
+            Đã hiển thị {Math.min(limit, filtered.length)}/{filtered.length} bó
+            hoa · Cuộn để xem tiếp
+          </p>
           <button
             className="button secondary"
-            onClick={() => setLimit(limit + 8)}
+            onClick={() => setLimit((value) => value + 8)}
           >
             Ngắm thêm hoa <ArrowDown size={17} />
           </button>
@@ -672,6 +700,7 @@ function Catalogue({
 }
 function ProductDetail({ slug }: { slug: string }) {
   const { products, settings, user, me, add, favorite, favorites } = useShop();
+  const router = useRouter();
   const p = products.find((p) => p.slug === slug)!;
   useEffect(() => {
     track("view_item", { productId: p.id });
@@ -752,7 +781,7 @@ function ProductDetail({ slug }: { slug: string }) {
                 className={v.id === selected ? "selected" : ""}
                 onClick={() => setSelected(v.id)}
               >
-                <Flower2 size={19} />
+                <FlowerIcon size={19} />
                 <strong>{v.name}</strong>
                 <span>{money(v.price)}</span>
               </button>
@@ -775,14 +804,28 @@ function ProductDetail({ slug }: { slug: string }) {
               </button>
             </div>
             <button
-              className="button glass-primary"
+              type="button"
+              className="button glass-primary buy-now-button"
+              disabled={variant.stock - variant.reserved < quantity}
+              onClick={() => {
+                add(variant.id, quantity);
+                router.push("/checkout");
+              }}
+            >
+              {variant.stock - variant.reserved < quantity
+                ? "Tạm hết hoa"
+                : "Mua hoa ngay"}
+              <ArrowRight size={18} aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className="button secondary glass add-to-cart-icon"
+              aria-label="Thêm giỏ hoa ngay"
+              title="Thêm giỏ hoa ngay"
               disabled={variant.stock - variant.reserved < quantity}
               onClick={() => add(variant.id, quantity)}
             >
-              <ShoppingBag size={18} />
-              {variant.stock - variant.reserved < quantity
-                ? "Tạm hết hoa"
-                : "Thêm vào giỏ hoa"}
+              <ShoppingBag size={20} aria-hidden="true" />
             </button>
           </div>
           <div className="detail-promises">
@@ -827,14 +870,14 @@ function ProductDetail({ slug }: { slug: string }) {
             Có thể bạn cũng <em>thương.</em>
           </h2>
         </div>
-        <div className="product-grid">
+        <MasonryGrid>
           {products
             .filter((i) => i.id !== p.id)
             .slice(0, 4)
             .map((p, i) => (
               <ProductCard key={p.id} product={p} index={i} />
             ))}
-        </div>
+        </MasonryGrid>
       </section>
     </div>
   );

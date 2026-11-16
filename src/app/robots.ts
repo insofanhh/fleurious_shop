@@ -12,6 +12,7 @@ export default function robots(): MetadataRoute.Robots {
         "/auth",
         "/checkout",
         "/orders",
+        "/track-order",
         "/q/",
         "/cart",
         "/streak",

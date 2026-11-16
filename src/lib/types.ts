@@ -35,6 +35,7 @@ export type PublicUser = {
   birthDate?: string | null;
 };
 export type Bootstrap = {
+  shipping?: import("./shipping-types").ShippingPublic;
   googleAuthAvailable?: boolean;
   realtimeTransport?: "websocket" | "socketio";
   analyticsEnabled: boolean;
@@ -90,6 +91,13 @@ export type Reward = {
   expiresAt: string;
 };
 export type Order = {
+  shippingMethod?: string;
+  shippingSnapshot?: import("./shipping-types").ShippingSnapshot | null;
+  manualPayment?: boolean;
+  paymentDueAt?: string | null;
+  deliveredAt?: string | null;
+  paidAt?: string | null;
+  receivable?: { state: string; kind: string } | null;
   source?: import("./order-channels").OrderChannel;
   expiredAt?: string | null;
   serverNow?: string;
@@ -157,7 +165,10 @@ export type Me = {
     name: string;
     phone: string;
     address: string;
-    zoneId: string;
+    zoneId: string | null;
+    placeId?: string | null;
+    formattedAddress?: string | null;
+    addressDetails?: string;
   }[];
   notifications: {
     id: string;

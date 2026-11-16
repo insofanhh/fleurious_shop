@@ -15,5 +15,5 @@ export const initialOrderStages = {
   PREPARING: "Đang chuẩn bị",
   READY: "Sẵn sàng giao",
   OUT_FOR_DELIVERY: "Đang giao",
-  DELIVERED: "Đã giao & thu tiền",
+  DELIVERED: "Đã giao thành công",
 } as const;

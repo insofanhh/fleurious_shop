@@ -1,3 +1,4 @@
+import { shippingPublic } from "@/lib/shipping";
 import { getSepayConfig } from "@/lib/sepay-settings";
 import { getPushPublicKey } from "@/lib/push-config";
 import { PwaViewport } from "@/components/pwa-viewport";
@@ -28,6 +29,8 @@ import "@/components/admin-order-details.css";
 import "@/components/card-assets.css";
 import "@/components/auth-enhancements.css";
 import "@/components/ui/date-input.css";
+import "@/components/catalog-admin.css";
+import "@/components/order-tracking.css";
 import { Shell } from "@/components/shell";
 import { AnalyticsConsent } from "@/components/analytics-consent";
 import { analyticsEnabled } from "@/lib/analytics";
@@ -90,6 +93,7 @@ export default async function RootLayout({
   const rewardRules = (await getRewardRules()).rules.filter((r) => r.active);
   const initial = JSON.parse(
     JSON.stringify({
+      shipping: await shippingPublic(),
       products,
       zones,
       slots,

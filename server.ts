@@ -77,7 +77,11 @@ async function main() {
   });
   io.on("connection", (socket) => {
     if (socket.data.userId) socket.join(`user:${socket.data.userId}`);
-    if (["OWNER", "MANAGER", "FLORIST", "DELIVERY"].includes(socket.data.role))
+    if (
+      ["OWNER", "MANAGER", "FLORIST", "DELIVERY", "ACCOUNTANT"].includes(
+        socket.data.role,
+      )
+    )
       socket.join("staff:orders");
   });
   let processing = false;
@@ -136,15 +140,21 @@ async function main() {
             return;
           }
           await projectStaffNotification(e);
-          if (e.event === "settings.payment_changed") io.emit("catalog", {});
+          if (["settings.payment_changed", "catalog.changed"].includes(e.event))
+            io.emit("catalog", {});
           const packet = { id: e.id, event: e.event, data: e.payload };
           if (e.userId) {
             io.to(`user:${e.userId}`).emit("update", packet);
-            if (e.event !== "notification.read")
+            if (
+              e.event !== "notification.read" &&
+              (e.payload as { push?: boolean }).push !== false &&
+              e.event !== "collection.changed"
+            )
               await sendPush(
                 e.userId,
                 e.event,
                 (e.payload as { admin?: boolean }).admin === true,
+                e.payload,
               );
           }
           if (e.event.startsWith("order."))

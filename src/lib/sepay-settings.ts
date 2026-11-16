@@ -216,7 +216,7 @@ export async function saveSepaySettings(
             paymentMethod: "SEPAY",
             paymentStatus: { in: ["UNPAID", "PENDING"] },
             status: { not: "CANCELLED" },
-            expiresAt: { gt: now },
+            OR: [{ manualPayment: true }, { expiresAt: { gt: now } }],
           },
         })) +
         (await tx.membershipInvoice.count({

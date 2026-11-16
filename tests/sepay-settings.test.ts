@@ -25,6 +25,15 @@ let owner: User, member: User, backup: Setting | null;
 const actor = { id: `sepay-qa-${randomUUID()}`, role: "OWNER" };
 before(async () => {
   assert.match(new URL(process.env.DATABASE_URL!).pathname, /_test$/);
+  // This suite changes the bank destination: close payment-request fixtures
+  // from other suites, including manual requests that intentionally never expire.
+  await db.order.updateMany({
+    where: {
+      paymentMethod: "SEPAY",
+      paymentStatus: { in: ["UNPAID", "PENDING"] },
+    },
+    data: { status: "CANCELLED" },
+  });
   backup = await db.setting.findUnique({ where: { key: "sepay_payment" } });
   await db.setting.deleteMany({ where: { key: "sepay_payment" } });
   process.env.SEPAY_BANK = "TESTBANK";
@@ -184,6 +193,45 @@ test("bank settings validate required fields and reject invalid account characte
     true,
   );
 });
+test("unlimited manual requests block bank changes even after the old reservation deadline", async () => {
+  const order = await db.order.create({
+    data: {
+      code: `FLR${randomUUID().replaceAll("-", "").slice(0, 12).toUpperCase()}`,
+      idempotencyKey: randomUUID(),
+      source: "ZALO",
+      createdBy: owner.id,
+      buyerName: "QA",
+      buyerEmail: "qa@example.test",
+      recipientName: "QA",
+      recipientPhone: "0901234567",
+      address: "QA Hà Nội",
+      zoneId: "qa",
+      slotId: "qa",
+      slotLabel: "QA",
+      deliveryDay: "2099-01-01",
+      cardMessage: "",
+      note: "",
+      subtotal: 100000,
+      deliveryFee: 0,
+      total: 100000,
+      paymentMethod: "SEPAY",
+      manualPayment: true,
+      paymentDueAt: null,
+      expiresAt: new Date(0),
+    },
+  });
+  try {
+    const previous = await getSepayAdminView(actor);
+    await assert.rejects(
+      () =>
+        saveSepaySettings(actor, { ...previous, accountNumber: "DIFFERENT" }),
+      { code: "PAYMENTS_PENDING" },
+    );
+  } finally {
+    await db.order.delete({ where: { id: order.id } });
+  }
+});
+
 test("membership QR and incoming payments use dashboard bank settings; pending requests block destination changes", async () => {
   const tiers = await getMembershipTiers();
   const tier = tiers.find((t) => t.code === "Bloom")!;

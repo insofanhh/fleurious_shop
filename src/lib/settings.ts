@@ -1,33 +1,63 @@
 import { z } from "zod";
 import { db } from "./db";
-import type {Prisma} from "@prisma/client";
-export const settingsSchema = z.object({
-  shopName: z.string().min(1).max(80),
-  phone: z.string().max(30),
-  address: z.string().max(200),
-  memberEnabled: z.boolean(),
-  memberQuota: z.number().int().min(0).max(100),
-  memberPercent: z.number().int().min(0).max(50),
-  memberCap: z.number().int().min(0).max(1000000),
-  bloomSpend: z.number().int().min(0),
-  burgundySpend: z.number().int().min(0),
-  streakEnabled: z.boolean(),
-  qrMaxClaims: z.number().int().min(1).max(10),
-  qrHours: z.number().int().min(1).max(168),
-  qrTrigger: z.enum(["CONFIRMED", "DELIVERED"]),
-  minimumLeadHours: z.number().int().min(0).max(168),
-  monthlyThreshold: z.number().int().min(1).max(31),
-  monthlyPercent: z.number().int().min(1).max(30),
-  consecutiveThreshold: z.number().int().min(2).max(60),
-  consecutivePercent: z.number().int().min(1).max(30),
-  rewardCap: z.number().int().min(0).max(1000000),
-  rewardMinimum: z.number().int().min(0).max(10000000),
-  rewardDays: z.number().int().min(1).max(365),
-  campaignBudget: z.number().int().min(0),
-  campaignName: z.string().min(1).max(100),
-  codEnabled: z.boolean(),
-  blackoutDates: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).max(366),
-});
+import type { Prisma } from "@prisma/client";
+export const settingsSchema = z
+  .object({
+    shopName: z.string().min(1).max(80),
+    phone: z.string().max(30),
+    address: z.string().max(500),
+    memberEnabled: z.boolean(),
+    memberQuota: z.number().int().min(0).max(100),
+    memberPercent: z.number().int().min(0).max(50),
+    memberCap: z.number().int().min(0).max(1000000),
+    bloomSpend: z.number().int().min(0),
+    burgundySpend: z.number().int().min(0),
+    streakEnabled: z.boolean(),
+    qrMaxClaims: z.number().int().min(1).max(10),
+    qrHours: z.number().int().min(1).max(168),
+    qrTrigger: z.enum(["CONFIRMED", "DELIVERED"]),
+    minimumLeadHours: z.number().int().min(0).max(168),
+    monthlyThreshold: z.number().int().min(1).max(31),
+    monthlyPercent: z.number().int().min(1).max(30),
+    consecutiveThreshold: z.number().int().min(2).max(60),
+    consecutivePercent: z.number().int().min(1).max(30),
+    rewardCap: z.number().int().min(0).max(1000000),
+    rewardMinimum: z.number().int().min(0).max(10000000),
+    rewardDays: z.number().int().min(1).max(365),
+    campaignBudget: z.number().int().min(0),
+    campaignName: z.string().min(1).max(100),
+    codEnabled: z.boolean(),
+    manualPaymentHours: z.number().int().min(0).max(720).default(24),
+    collectionRemindersEnabled: z.boolean().default(true),
+    collectionDueHours: z.number().int().min(0).max(720).default(0),
+    collectionFirstReminderHours: z.number().int().min(0).max(168).default(2),
+    collectionShipperDueHours: z.number().int().min(0).max(720).default(24),
+    collectionPriorityHours: z.number().int().min(1).max(720).default(24),
+    collectionEscalationHours: z.number().int().min(1).max(2160).default(72),
+    collectionDigestHour: z.number().int().min(0).max(23).default(9),
+    collectionWorkStart: z.number().int().min(0).max(23).default(8),
+    collectionWorkEnd: z.number().int().min(1).max(24).default(20),
+    collectionPushEnabled: z.boolean().default(true),
+    collectionNotifyAccountant: z.boolean().default(true),
+    blackoutDates: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).max(366),
+  })
+  .refine((s) => s.collectionWorkStart < s.collectionWorkEnd, {
+    message: "Giờ bắt đầu nhắc phải trước giờ kết thúc.",
+    path: ["collectionWorkEnd"],
+  })
+  .refine(
+    (s) =>
+      s.collectionDigestHour >= s.collectionWorkStart &&
+      s.collectionDigestHour < s.collectionWorkEnd,
+    {
+      message: "Giờ tổng hợp phải nằm trong giờ gửi nhắc.",
+      path: ["collectionDigestHour"],
+    },
+  )
+  .refine((s) => s.collectionEscalationHours >= s.collectionPriorityHours, {
+    message: "Mốc báo quản lý phải từ mốc ưu tiên trở đi.",
+    path: ["collectionEscalationHours"],
+  });
 export type ShopSettings = z.infer<typeof settingsSchema>;
 export const defaultSettings: ShopSettings = {
   shopName: "Fleurious",
@@ -54,9 +84,23 @@ export const defaultSettings: ShopSettings = {
   campaignBudget: 5000000,
   campaignName: "Những ngày có hoa",
   codEnabled: true,
+  manualPaymentHours: 24,
+  collectionRemindersEnabled: true,
+  collectionDueHours: 0,
+  collectionFirstReminderHours: 2,
+  collectionShipperDueHours: 24,
+  collectionPriorityHours: 24,
+  collectionEscalationHours: 72,
+  collectionDigestHour: 9,
+  collectionWorkStart: 8,
+  collectionWorkEnd: 20,
+  collectionPushEnabled: true,
+  collectionNotifyAccountant: true,
   blackoutDates: [],
 };
-export async function getSettings(client:Prisma.TransactionClient|typeof db=db) {
+export async function getSettings(
+  client: Prisma.TransactionClient | typeof db = db,
+) {
   const row = await client.setting.findUnique({ where: { key: "shop" } });
   return settingsSchema.parse({
     ...defaultSettings,

@@ -18,9 +18,12 @@ export async function GET(request: NextRequest) {
   const user = await currentUser();
   const token = request.cookies.get(SESSION_COOKIE)?.value;
   const staff =
-    user && ["OWNER", "MANAGER", "FLORIST", "DELIVERY"].includes(user.role);
+    user &&
+    ["OWNER", "MANAGER", "FLORIST", "DELIVERY", "ACCOUNTANT"].includes(
+      user.role,
+    );
   const allowed: Prisma.OutboxWhereInput[] = [
-    { event: "settings.payment_changed" },
+    { event: { in: ["settings.payment_changed", "catalog.changed"] } },
   ];
   if (user)
     allowed.push({ userId: user.id, NOT: { event: "analytics.event" } });
@@ -67,7 +70,11 @@ export async function GET(request: NextRequest) {
           if (fresh.length)
             ws.send(
               JSON.stringify({
-                type: fresh.some((e) => e.event === "settings.payment_changed")
+                type: fresh.some((e) =>
+                  ["settings.payment_changed", "catalog.changed"].includes(
+                    e.event,
+                  ),
+                )
                   ? "catalog"
                   : "sync",
               }),

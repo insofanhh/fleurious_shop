@@ -12,7 +12,7 @@
 
 Vercel chạy Next.js trực tiếp. Local/container vẫn chạy `server.ts` + Socket.IO. Cloud dùng `/api/realtime` với WebSocket của Vercel; mỗi kết nối đọc các sự kiện đã lưu trong TiDB theo đúng user/quyền, chỉ gửi tín hiệu yêu cầu tải lại dữ liệu. Phiên được kiểm tra lại, tự reconnect trước giới hạn thời gian của function. Có đồng bộ dự phòng khi mất kết nối.
 
-Worker cloud chạy qua `after()` sau API và qua scheduler; job/outbox có lease, retry và khóa idempotency. Ảnh upload tối đa 4 MB để nằm dưới giới hạn request của Vercel, được re-encode WebP rồi lưu vào bảng `MediaAsset` trên TiDB, thay cho filesystem tạm. Ảnh public/brand đi cùng code.
+Worker cloud chạy qua `after()` sau API và qua scheduler; job/outbox có lease, retry và khóa idempotency. Ảnh upload mới tối đa 4 MB, được tối ưu WebP rồi lưu vào Vercel Blob public ở `sin1`, dùng biến server `BLOB_READ_WRITE_TOKEN`. Ảnh cũ `/media/...` tiếp tục được đọc từ nơi lưu hiện có; ảnh public/brand đi cùng code. Xem [quản lý sản phẩm và ảnh](CATALOGUE_ADMIN.vi.md).
 
 ## Thiết lập cron-job.org thủ công
 
@@ -29,6 +29,8 @@ Endpoint tự chia lịch: dọn đơn mỗi phút; hội viên và nhắc giao 
 Khi chưa bật cron, API đang có traffic vẫn xử lý outbox/dọn reservation; không coi đó là thay thế lịch chạy khi website không có lượt truy cập.
 
 ## SePay, email và vận hành
+
+- Giao hoa theo quãng đường: thêm `GOONG_API_KEY` vào ENV server rồi redeploy; migration giao hàng cần áp dụng trước. Owner/Manager chọn vị trí cửa hàng và đơn giá tại `/admin/settings`. Xem [cấu hình Goong](GOONG_SHIPPING.vi.md). Không cần thêm cron; cache tuyến mặc định tắt.
 
 - Cấu hình ngân hàng/API key ở Admin → Cài đặt. Cập nhật webhook trong tài khoản SePay thành `https://fleurious-shop.vercel.app/api/payments/sepay/webhook`, dùng API key hiện có; URL local cũ không nhận webhook cloud.
 - QR giữ chuỗi mới dùng domain production. Card đã in bằng localhost cần xuất lại từ đơn trên website công khai.

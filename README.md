@@ -40,7 +40,7 @@ Server local mặc định chỉ bind `127.0.0.1`. Dùng `HOST=0.0.0.0` khi ch�
 **Khách hàng**
 
 - Trang chủ, khám phá masonry có kiểm soát/lưới đều, tìm kiếm, lọc dịp/màu/ngân sách/danh mục, sắp giá, sản phẩm và nhiều size.
-- Yêu thích, giỏ nháp, checkout khách vãng lai/tài khoản, phí giao/khu vực, ngày/slot, thiệp, ghi chú.
+- Yêu thích, giỏ nháp, checkout khách vãng lai/tài khoản, phí giao theo Goong × giá/km, ngày/slot, thiệp, ghi chú.
 - SePay QR chuyển khoản và webhook xác thực; COD có thể bật/tắt trong admin.
 - Trang đơn riêng tư, lịch sử trạng thái, QR giữ chuỗi tách rõ khỏi QR thanh toán.
 - Đăng ký, email xác minh, khôi phục mật khẩu, hồ sơ, địa chỉ, thông báo, 2FA TOTP và mã dự phòng.
@@ -173,7 +173,7 @@ npm run test:e2e
 6. `docker compose up -d web worker`, đặt reverse proxy HTTPS theo `ops/nginx.conf.example`, cấu hình cron-job.org và webhook SePay.
 7. Kiểm tra `/api/health`, thanh toán Test Mode rồi giao dịch thật do chủ shop thực hiện, luồng hủy/hoàn và cảnh báo job.
 
-Upload được lưu ở volume `/app/storage/uploads`, phục vụ qua `/media/[file]`; có thể xem ngay sau upload mà không cần rebuild. Nếu thay bằng S3/CDN, giữ URL snapshot trong đơn/lịch. Sao lưu MySQL, volume ảnh và **SESSION_SECRET** cùng quy trình khôi phục; mất secret sẽ không giải mã được QR/TOTP cũ. RPO/RTO phụ thuộc hạ tầng và cần diễn tập restore trước mở bán.
+Ảnh upload mới được tối ưu WebP và lưu trên Vercel Blob; đặt `BLOB_READ_WRITE_TOKEN` trong môi trường server. Các ảnh cũ `/media/[file]` vẫn cần bảng MediaAsset hoặc volume `/app/storage/uploads` tương ứng. Sao lưu MySQL, ảnh cũ, cấu hình Blob và **SESSION_SECRET** cùng quy trình khôi phục; mất secret sẽ không giải mã được QR/TOTP cũ. Xem [quản lý danh mục, size và upload ảnh](docs/CATALOGUE_ADMIN.vi.md).
 
 ## Phạm vi tiếp theo theo kế hoạch
 
@@ -189,3 +189,5 @@ Những phần dưới đây chưa được coi là đã hoàn thành chỉ vì 
 Ảnh/giá/nội dung seed là dữ liệu trình diễn. Ảnh tải từ Unsplash qua `scripts/assets.ts`; thay bằng ảnh sản phẩm thực tế và chính sách đã duyệt trước khi nhận đơn thật.
 
 Tài liệu gốc: [Kế hoạch chi tiết](docs/FLEURIOUS_WEBSITE_PLAN.vi.md).
+
+Tính phí ship theo Goong: [hướng dẫn cấu hình và vận hành](docs/GOONG_SHIPPING.vi.md). Thêm `GOONG_API_KEY`, chọn đúng vị trí cửa hàng và nhập VNĐ/km tại `/admin/settings`. Đơn mới sử dụng báo giá quãng đường, không chọn khu vực giao.

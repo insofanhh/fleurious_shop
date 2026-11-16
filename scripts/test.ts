@@ -38,7 +38,12 @@ async function main() {
       "--test-concurrency=1",
       "--test-timeout=60000",
       "tests/rules.test.ts",
+      "tests/masonry.test.ts",
+      "tests/order-journey.test.ts",
+      "tests/catalog-admin.test.ts",
+      "tests/catalog-image.test.ts",
       "tests/commerce.test.ts",
+      "tests/collections.test.ts",
       "tests/membership.test.ts",
       "tests/notifications.test.ts",
       "tests/push-client.test.ts",
@@ -47,6 +52,7 @@ async function main() {
       "tests/flower-card.test.ts",
       "tests/cloud-schedule.test.ts",
       "tests/google-auth.test.ts",
+      "tests/shipping.test.ts",
     ],
   ]) {
     const result = spawnSync(process.execPath, args, { stdio: "inherit", env });

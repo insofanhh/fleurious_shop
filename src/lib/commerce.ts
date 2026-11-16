@@ -1,5 +1,11 @@
-import { stoppedOrderStatuses, hasReceivedPayment } from "./order-workflow";
-import { isOrderExpired } from "./order-expiry";
+import { orderShipping, manualShippingSchema } from "./shipping";
+import {
+  stoppedOrderStatuses,
+  hasReceivedPayment,
+  statusAfterPayment,
+} from "./order-workflow";
+import { isOrderExpired, isPaymentOverdue } from "./order-expiry";
+import { openCodReceivableTx } from "./collections";
 import { getSepayConfig, lockSepayConfig } from "./sepay-settings";
 import { randomBytes } from "node:crypto";
 import { Prisma, type User, type Order as DbOrder } from "@prisma/client";
@@ -37,8 +43,12 @@ export const checkoutSchema = z.object({
   recipientPhone: z
     .string()
     .regex(/^(\+84|0)[0-9]{9,10}$/, "Số điện thoại không hợp lệ"),
-  address: z.string().trim().min(8).max(300),
-  zoneId: z.string(),
+  address: z.string().trim().min(8).max(800),
+  zoneId: z.string().nullable().optional(),
+  locationId: z.string().max(100).optional(),
+  shippingQuoteId: z.string().max(100).optional(),
+  addressDetails: z.string().max(200).optional(),
+  manualShipping: manualShippingSchema.optional(),
   deliveryDay: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   slotId: z.string(),
   cardMessage: z.string().max(500).default(""),
@@ -51,22 +61,34 @@ export const checkoutSchema = z.object({
   idempotencyKey: z.string().min(16).max(100),
 });
 export type Checkout = z.infer<typeof checkoutSchema>;
-export const checkoutQuoteSchema = checkoutSchema.pick({
-  items: true,
-  zoneId: true,
-  deliveryDay: true,
-  slotId: true,
-  paymentMethod: true,
-  useMember: true,
-  rewardId: true,
-  voucherCode: true,
-});
+export const checkoutQuoteSchema = checkoutSchema
+  .pick({
+    items: true,
+    zoneId: true,
+    locationId: true,
+    shippingQuoteId: true,
+    addressDetails: true,
+    address: true,
+    manualShipping: true,
+    deliveryDay: true,
+    slotId: true,
+    paymentMethod: true,
+    useMember: true,
+    rewardId: true,
+    voucherCode: true,
+  })
+  .extend({ address: z.string().max(800).optional() });
 export type CheckoutQuoteInput = z.infer<typeof checkoutQuoteSchema>;
 export async function quote(
   input: CheckoutQuoteInput,
   user: User | null,
   client: Tx | typeof db = db,
-  options: { allowPastSlot?: boolean } = {},
+  options: {
+    allowPastSlot?: boolean;
+    shippingOwner?: string;
+    allowManualShipping?: boolean;
+    lockShipping?: boolean;
+  } = {},
 ) {
   const settings = await getSettings(client);
   if (new Set(input.items.map((i) => i.variantId)).size !== input.items.length)
@@ -92,12 +114,16 @@ export async function quote(
       price: v.price,
     };
   });
-  const [zone, slot] = await Promise.all([
-    client.deliveryZone.findUnique({ where: { id: input.zoneId } }),
+  const [shipping, slot] = await Promise.all([
+    orderShipping(
+      input,
+      options.shippingOwner ?? (user ? `user:${user.id}` : undefined),
+      client,
+      { lock: options.lockShipping, allowManual: options.allowManualShipping },
+    ),
     client.deliverySlot.findUnique({ where: { id: input.slotId } }),
   ]);
-  if (!zone?.active || !slot?.active)
-    fail("INVALID_DELIVERY", "Khu vực hoặc khung giờ không khả dụng.");
+  if (!slot?.active) fail("INVALID_DELIVERY", "Khung giờ giao không khả dụng.");
   if (
     input.deliveryDay < dayKey() ||
     input.deliveryDay > dayKey(new Date(Date.now() + 60 * 86400000)) ||
@@ -229,8 +255,9 @@ export async function quote(
     discountLabel,
     discountBase,
     eligibleVariantIds,
-    deliveryFee: zone.fee,
-    total: subtotal - discount + zone.fee,
+    shipping,
+    deliveryFee: shipping.fee,
+    total: subtotal - discount + shipping.fee,
     member,
     memberLimit,
     rewardId,
@@ -275,6 +302,9 @@ export async function createOrderTx(
     createdBy?: string;
     notify?: boolean;
     allowPastSlot?: boolean;
+    paymentDueAt?: Date | null;
+    shippingOwner?: string;
+    allowManualShipping?: boolean;
   } = {},
 ) {
   const existing = await tx.order.findUnique({
@@ -300,6 +330,11 @@ export async function createOrderTx(
   if (user) await lockMember(tx, user.id);
   const q = await quote(input, user, tx, {
     allowPastSlot: options.allowPastSlot,
+    shippingOwner:
+      options.shippingOwner ??
+      (user ? `user:${user.id}` : `guest:${guestHash}`),
+    allowManualShipping: options.allowManualShipping,
+    lockShipping: true,
   });
   if (input.expectedTotal !== undefined && input.expectedTotal !== q.total)
     fail(
@@ -372,8 +407,17 @@ export async function createOrderTx(
       buyerEmail: input.buyerEmail,
       recipientName: input.recipientName,
       recipientPhone: input.recipientPhone,
-      address: input.address,
-      zoneId: input.zoneId,
+      address: q.shipping.address ?? input.address,
+      zoneId: q.shipping.zoneId,
+      shippingMethod: q.shipping.method,
+      shippingSnapshot: q.shipping.snapshot
+        ? ({
+            ...q.shipping.snapshot,
+            addressDetails: input.addressDetails ?? "",
+          } as unknown as Prisma.InputJsonValue)
+        : Prisma.DbNull,
+      shippingQuoteId:
+        q.shipping.method === "DISTANCE" ? input.shippingQuoteId : null,
       deliveryDay: input.deliveryDay,
       slotId: input.slotId,
       slotLabel: q.slot.label,
@@ -383,6 +427,8 @@ export async function createOrderTx(
       cardWritingMode: input.cardWritingMode,
       note: input.note,
       paymentMethod: input.paymentMethod,
+      manualPayment: !!options.createdBy,
+      paymentDueAt: options.paymentDueAt,
       subtotal: q.subtotal,
       discount: q.discount,
       deliveryFee: q.deliveryFee,
@@ -754,6 +800,8 @@ export async function transitionOrderTx(
     fail("FORBIDDEN", "Bạn không có quyền thao tác này.", 403);
   if (actor.role === "DELIVERY" && !["DISPATCH", "DELIVER"].includes(action))
     fail("FORBIDDEN", "Bạn không có quyền thao tác này.", 403);
+  if (actor.role === "DELIVERY" && o.assignee !== actor.id)
+    fail("FORBIDDEN", "Bạn chỉ được cập nhật đơn được phân công.", 403);
   let updated;
   if (action === "CANCEL")
     updated = await cancelOrder(tx, id, "Cửa hàng đã hủy đơn");
@@ -770,6 +818,7 @@ export async function transitionOrderTx(
       action === "CONFIRM" &&
       o.status === "PENDING" &&
       (o.paymentMethod === "COD" ||
+        (o.manualPayment && ["OWNER", "MANAGER"].includes(actor.role)) ||
         ["PAID", "PARTIALLY_REFUNDED"].includes(o.paymentStatus))
     ) {
       data.status = "CONFIRMED";
@@ -787,11 +836,7 @@ export async function transitionOrderTx(
     else if (action === "DELIVER" && o.fulfillment === "OUT_FOR_DELIVERY") {
       data.fulfillment = "DELIVERED";
       data.status = "COMPLETED";
-      if (
-        o.paymentMethod === "COD" &&
-        ["UNPAID", "PENDING"].includes(o.paymentStatus)
-      )
-        data.paymentStatus = "PAID";
+      data.deliveredAt = new Date();
       if (o.stockState === "RESERVED") {
         for (const item of o.items)
           await tx.productVariant.update({
@@ -806,12 +851,18 @@ export async function transitionOrderTx(
     } else fail("INVALID_TRANSITION", "Không thể chuyển sang trạng thái này.");
     data.history = { create: { text: labels[action] } };
     updated = await tx.order.update({ where: { id }, data });
-    if (action === "DELIVER" && o.paymentMethod === "COD")
+    if (action === "DELIVER") await openCodReceivableTx(tx, updated);
+    if (
+      action === "DELIVER" &&
+      o.paymentMethod === "COD" &&
+      hasReceivedPayment(updated)
+    )
       await queuePurchase(tx, id);
     if (action === "DELIVER" && o.userId) await recordMembershipSpend(tx, id);
     if (
       (action === "CONFIRM" &&
         o.paymentMethod === "SEPAY" &&
+        hasReceivedPayment(updated) &&
         settings.qrTrigger === "CONFIRMED") ||
       action === "DELIVER"
     )
@@ -1139,7 +1190,7 @@ export async function receiveSepay(
       order.paymentMethod === "SEPAY" &&
       ["UNPAID", "PENDING"].includes(order.paymentStatus) &&
       !stoppedOrderStatuses.includes(order.status) &&
-      order.expiresAt > new Date() &&
+      !isPaymentOverdue(order) &&
       order.total === input.transferAmount;
     const manual =
       order &&
@@ -1174,16 +1225,36 @@ export async function receiveSepay(
       },
     });
     if (matched && order) {
-      await tx.order.update({
+      const updated = await tx.order.update({
         where: { id: order.id },
         data: {
           paymentStatus: "PAID",
+          status: statusAfterPayment(order.status),
+          paidAt: new Date(),
           version: { increment: 1 },
-          history: { create: { text: "SePay đã xác nhận thanh toán" } },
+          history: {
+            create: [
+              { text: "SePay đã xác nhận thanh toán" },
+              ...(order.status === "PENDING"
+                ? [
+                    {
+                      text: "Tự động xác nhận đơn sau thanh toán · Chờ chuẩn bị",
+                    },
+                  ]
+                : []),
+            ],
+          },
         },
       });
       await consumeBenefits(tx, order);
       await queuePurchase(tx, order.id);
+      if (order.fulfillment === "DELIVERED")
+        await recordMembershipSpend(tx, order.id);
+      if (
+        updated.status !== "PENDING" &&
+        (await getSettings(tx)).qrTrigger === "CONFIRMED"
+      )
+        await unlockQr(tx, order.id, await getSettings(tx));
       if (order.userId)
         await tx.notification.create({
           data: {
@@ -1208,6 +1279,7 @@ export async function expireReservations() {
   const expired = await db.order.findMany({
     where: {
       status: "PENDING",
+      manualPayment: false,
       paymentStatus: { in: ["UNPAID", "PENDING"] },
       expiresAt: { lt: new Date() },
     },
@@ -1220,6 +1292,7 @@ export async function expireReservations() {
       const fresh = await tx.order.findUniqueOrThrow({ where: { id: o.id } });
       if (
         fresh.status === "PENDING" &&
+        !fresh.manualPayment &&
         ["UNPAID", "PENDING"].includes(fresh.paymentStatus) &&
         fresh.expiresAt < new Date()
       ) {
@@ -1235,5 +1308,15 @@ export async function expireReservations() {
     });
   await db.rateLimit.deleteMany({ where: { expiresAt: { lt: new Date() } } });
   await db.session.deleteMany({ where: { expiresAt: { lt: new Date() } } });
+  const shippingCutoff = new Date(Date.now() - 86400000);
+  await db.shippingLocation.deleteMany({
+    where: { expiresAt: { lt: shippingCutoff } },
+  });
+  await db.shippingQuote.deleteMany({
+    where: { expiresAt: { lt: shippingCutoff } },
+  });
+  await db.shippingRouteCache.deleteMany({
+    where: { expiresAt: { lt: new Date() } },
+  });
   return expired.length;
 }

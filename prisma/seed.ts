@@ -162,8 +162,10 @@ async function main() {
     CATEGORY: ["Bó hoa", "Bình hoa", "Giỏ hoa"],
     OCCASION: ["Sinh nhật", "Kỷ niệm", "Chúc mừng", "Tặng bản thân"],
     COLOR: ["Đỏ", "Trắng", "Hồng", "Tím", "Vàng"],
+    SIZE: ["Vừa xinh", "Đong đầy"],
   })) {
     for (const name of names) {
+      if (await db.taxonomy.findFirst({ where: { kind, name } })) continue;
       const slug = name
         .toLowerCase()
         .normalize("NFD")

@@ -1,4 +1,21 @@
 import {
+  shippingPublic,
+  shippingAdminView,
+  saveShippingPolicy,
+  shippingSuggestions,
+  resolveShippingLocation,
+  createShippingQuote,
+  savedAddressFields,
+  assertShopShippingAddress,
+  assertZoneEditable,
+} from "@/lib/shipping";
+import {
+  saveCatalogProduct,
+  setProductVisibility,
+  saveCatalogTaxonomy,
+  hideCatalogTaxonomy,
+} from "@/lib/catalog-admin";
+import {
   confirmOrderPayment,
   stopAndRefundOrder,
   requestOrderRefund,
@@ -10,6 +27,12 @@ import {
   quoteAdminOrder,
   requireOrderCreator,
 } from "@/lib/admin-orders";
+import {
+  orderReviewOptions,
+  createOrderReview,
+  publicProductReviews,
+  buyerProductReviews,
+} from "@/lib/order-reviews";
 import { prepareReorder } from "@/lib/order-reorder";
 import { googleAuthAvailable } from "@/lib/google-auth";
 import { safeAuthNext } from "@/lib/auth-redirect";
@@ -57,6 +80,20 @@ import {
   atomic,
 } from "@/lib/commerce";
 import { getSettings, settingsSchema } from "@/lib/settings";
+import {
+  getCollections,
+  getCollectionDetail,
+  updateCollection,
+  remitCollection,
+} from "@/lib/collections";
+import { deliverOrder } from "@/lib/order-delivery";
+import { trackOrder, trackingPayment } from "@/lib/order-tracking";
+import {
+  getOrderPaymentQr,
+  downloadOrderPaymentQr,
+  setOrderPaymentTerms,
+} from "@/lib/order-payment-qr";
+import { isPaymentOverdue } from "@/lib/order-expiry";
 import { dayKey, monthKey, streakStats, localInstant } from "@/lib/time";
 import { sendAuthMail } from "@/lib/mail";
 import { enqueueJob } from "@/lib/queue";
@@ -95,6 +132,26 @@ async function route(req: NextRequest, context: Context) {
     )
       checkOrigin(req);
     const user = await currentUser();
+    if (
+      ["orders/track", "orders/track/payment"].includes(action) &&
+      method === "POST"
+    ) {
+      const address = (
+        req.headers.get("x-forwarded-for")?.split(",")[0] ??
+        req.headers.get("x-real-ip") ??
+        "local"
+      )
+        .trim()
+        .slice(0, 100);
+      await rateLimit(`tracking:${address}`, 90, 300);
+      await rateLimit("tracking:global", 600, 60);
+      const input = await req.json();
+      return json(
+        action === "orders/track/payment"
+          ? await trackingPayment(input)
+          : await trackOrder(input),
+      );
+    }
     if (process.env.VERCEL === "1" && action !== "health")
       after(async () => {
         await runCloudWorker(method !== "GET").catch(() =>
@@ -141,6 +198,65 @@ async function route(req: NextRequest, context: Context) {
         fail("INVALID_JSON", "Dữ liệu không hợp lệ.");
       }
     };
+    const shippingOwner = () =>
+      user
+        ? `user:${user.id}`
+        : req.cookies.get("fleurious_guest")?.value
+          ? `guest:${hash(req.cookies.get("fleurious_guest")!.value)}`
+          : undefined;
+    if (action === "admin/settings/delivery") {
+      const actor = requireAdmin("settings");
+      if (method === "GET") return json(await shippingAdminView(actor));
+      if (method === "PATCH")
+        return json(await saveShippingPolicy(actor, await body()));
+    }
+    if (
+      [
+        "locations/autocomplete",
+        "locations/resolve",
+        "shipping/quote",
+      ].includes(action) &&
+      method === "POST"
+    ) {
+      const address = (
+        req.headers.get("x-forwarded-for")?.split(",")[0] ??
+        req.headers.get("x-real-ip") ??
+        "local"
+      )
+        .trim()
+        .slice(0, 100);
+      const guest = req.cookies.get("fleurious_guest")?.value ?? token();
+      const owner = user ? `user:${user.id}` : `guest:${hash(guest)}`;
+      await rateLimit(`shipping:${address}`, 180, 300);
+      await rateLimit(`shipping-owner:${owner}`, 120, 300);
+      const configuredBudget = Number(
+        process.env.GOONG_REQUESTS_PER_MINUTE ?? 120,
+      );
+      await rateLimit(
+        "shipping:global",
+        Number.isSafeInteger(configuredBudget) && configuredBudget > 0
+          ? configuredBudget
+          : 120,
+        60,
+      );
+      const input = await body();
+      const response = json(
+        action === "locations/autocomplete"
+          ? await shippingSuggestions(input)
+          : action === "locations/resolve"
+            ? await resolveShippingLocation(owner, input, user?.id)
+            : await createShippingQuote(owner, input),
+      );
+      if (!req.cookies.get("fleurious_guest"))
+        response.cookies.set("fleurious_guest", guest, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
+          path: "/",
+          maxAge: 30 * 86400,
+        });
+      return response;
+    }
     if (
       action === "admin/settings/sepay" ||
       action === "admin/settings/sepay/rotate-key"
@@ -295,24 +411,18 @@ async function route(req: NextRequest, context: Context) {
     ) {
       const actor = requireAdmin("orders");
       requireOrderCreator(actor);
-      const order = await db.order.findUniqueOrThrow({
-        where: { id: path[2] },
-      });
-      const sepay = await getSepayConfig();
-      const url =
-        order.paymentMethod === "SEPAY" &&
-        ["UNPAID", "PENDING"].includes(order.paymentStatus) &&
-        !stoppedOrderStatuses.includes(order.status) &&
-        order.expiresAt > new Date()
-          ? (sepayQrUrl(sepay, order.total, order.code) ?? null)
-          : null;
-      return json({
-        url,
-        bank: sepay.bank,
-        accountNumber: sepay.accountNumber,
-        accountName: sepay.accountName,
-        serverNow: new Date().toISOString(),
-      });
+      if (req.nextUrl.searchParams.get("download") === "1") {
+        const result = await downloadOrderPaymentQr(actor, path[2]);
+        return new NextResponse(new Uint8Array(result.png), {
+          headers: {
+            "Content-Type": "image/png",
+            "Cache-Control": "private, no-store",
+            "Content-Disposition": `attachment; filename="fleurious-payment-${result.code}.png"`,
+            "Referrer-Policy": "no-referrer",
+          },
+        });
+      }
+      return json(await getOrderPaymentQr(actor, path[2]));
     }
     if (action === "admin/orders" && method === "POST") {
       const actor = requireAdmin("orders");
@@ -321,10 +431,31 @@ async function route(req: NextRequest, context: Context) {
       await expireReservations();
       const order = await createAdminOrder(await body(), actor);
       return json(
-        { id: order.id, code: order.code, version: order.version },
+        {
+          id: order.id,
+          code: order.code,
+          version: order.version,
+          paymentMethod: order.paymentMethod,
+          paymentStatus: order.paymentStatus,
+        },
         201,
       );
     }
+    if (
+      path[0] === "admin" &&
+      path[1] === "orders" &&
+      path[2] &&
+      path[3] === "payment-terms" &&
+      path.length === 4 &&
+      method === "PATCH"
+    )
+      return json(
+        await setOrderPaymentTerms(
+          requireAdmin("orders"),
+          path[2],
+          await body(),
+        ),
+      );
     if (action === "admin/orders/quote" && method === "POST")
       return json(await quoteAdminOrder(await body(), requireAdmin("orders")));
     if (action === "admin/orders/customers" && method === "GET") {
@@ -383,6 +514,7 @@ async function route(req: NextRequest, context: Context) {
           db.taxonomy.findMany({ where: { active: true } }),
         ]);
       return json({
+        shipping: await shippingPublic(),
         products,
         zones,
         slots,
@@ -401,59 +533,50 @@ async function route(req: NextRequest, context: Context) {
     }
     if (action === "reviews" && method === "GET")
       return json(
-        await db.review.findMany({
-          where: {
-            productId: req.nextUrl.searchParams.get("productId") ?? "",
-            status: "APPROVED",
-          },
-          select: {
-            id: true,
-            authorName: true,
-            rating: true,
-            body: true,
-            createdAt: true,
-          },
-          orderBy: { createdAt: "desc" },
-          take: 30,
-        }),
+        await publicProductReviews(
+          req.nextUrl.searchParams.get("productId") ?? "",
+        ),
       );
-    if (action === "me/reviews" && method === "POST") {
+    if (action === "me/reviews" && method === "GET") {
       const u = requireUser();
-      const input = z
-        .object({
-          productId: z.string(),
-          orderId: z.string(),
-          rating: z.number().int().min(1).max(5),
-          body: z.string().trim().min(10).max(2000),
-        })
-        .parse(await body());
-      await rateLimit(`review:${u.id}`, 5, 3600);
-      const order = await db.order.findFirst({
-        where: { id: input.orderId, userId: u.id, status: "COMPLETED" },
-        include: { items: true },
-      });
-      const variants = await db.productVariant.findMany({
-        where: { productId: input.productId },
-        select: { id: true },
-      });
-      if (
-        !order ||
-        !order.items.some((i) => variants.some((v) => v.id === i.variantId))
-      )
-        fail(
-          "NOT_PURCHASED",
-          "Chỉ có thể đánh giá hoa từ đơn đã giao của bạn.",
+      return json(
+        await buyerProductReviews(
+          u.id,
+          req.nextUrl.searchParams.get("productId") ?? "",
+        ),
+      );
+    }
+    if (
+      (path[0] === "orders" && path.length === 3 && path[2] === "reviews") ||
+      action === "me/reviews"
+    ) {
+      const buyer = {
+        userId: user?.id,
+        name: user?.name,
+        guestToken: req.cookies.get("fleurious_guest")?.value,
+      };
+      if (method === "GET" && path[0] === "orders")
+        return json(await orderReviewOptions(path[1], buyer));
+      if (method === "POST") {
+        const input = await body();
+        if (action === "me/reviews") requireUser();
+        await rateLimit(
+          `review:${user?.id ?? hash(buyer.guestToken ?? "guest")}`,
+          20,
+          3600,
         );
-      const review = await db.$transaction(async (tx) => {
-        const review = await tx.review.create({
-          data: { ...input, userId: u.id, authorName: u.name },
-        });
-        await tx.outbox.create({
-          data: { event: "review.created", payload: { reviewId: review.id } },
-        });
-        return review;
-      });
-      return json(review, 201);
+        return json(
+          await createOrderReview(
+            path[0] === "orders"
+              ? path[1]
+              : z.object({ orderId: z.string().min(1).max(100) }).parse(input)
+                  .orderId,
+            input,
+            buyer,
+          ),
+          201,
+        );
+      }
     }
     if (action === "analytics/events" && method === "POST") {
       if (
@@ -737,7 +860,11 @@ async function route(req: NextRequest, context: Context) {
       return json({ success: true });
     }
     if (action === "checkout/quote" && method === "POST")
-      return json(await quote(checkoutQuoteSchema.parse(await body()), user));
+      return json(
+        await quote(checkoutQuoteSchema.parse(await body()), user, db, {
+          shippingOwner: shippingOwner(),
+        }),
+      );
     if (action === "orders" && method === "POST") {
       await rateLimit(
         `order:${user?.id ?? req.cookies.get("fleurious_guest")?.value ?? "guest"}`,
@@ -807,7 +934,7 @@ async function route(req: NextRequest, context: Context) {
         order.paymentMethod === "SEPAY" &&
         ["UNPAID", "PENDING"].includes(order.paymentStatus) &&
         !stoppedOrderStatuses.includes(order.status) &&
-        order.expiresAt > new Date()
+        !isPaymentOverdue(order)
           ? (sepayQrUrl(sepay, order.total, order.code) ?? null)
           : null;
       return json({
@@ -1074,17 +1201,21 @@ async function route(req: NextRequest, context: Context) {
     }
     if (action === "me/addresses" && method === "POST") {
       const u = requireUser();
-      const data = z
+      const input = await body();
+      const contact = z
         .object({
           name: z.string().min(2).max(100),
           phone: z.string().min(10).max(20),
-          address: z.string().min(8).max(300),
-          zoneId: z.string(),
         })
-        .parse(await body());
+        .parse(input);
+      const fields = await savedAddressFields(`user:${u.id}`, input);
       if ((await db.address.count({ where: { userId: u.id } })) >= 10)
         fail("ADDRESS_LIMIT", "Bạn đã lưu tối đa 10 địa chỉ.");
-      return json(await db.address.create({ data: { ...data, userId: u.id } }));
+      return json(
+        await db.address.create({
+          data: { ...fields, ...contact, userId: u.id },
+        }),
+      );
     }
     if (
       path[0] === "me" &&
@@ -1159,7 +1290,11 @@ async function route(req: NextRequest, context: Context) {
     if (action === "me/push" && method === "POST") {
       const u = requireUser();
       if (!getPushPublicKey())
-        fail("PUSH_UNAVAILABLE", "Cửa hàng chưa hoàn tất thiết lập thông báo thiết bị.", 503);
+        fail(
+          "PUSH_UNAVAILABLE",
+          "Cửa hàng chưa hoàn tất thiết lập thông báo thiết bị.",
+          503,
+        );
       const input = z
         .object({
           endpoint: z.url().startsWith("https://"),
@@ -1205,6 +1340,7 @@ async function route(req: NextRequest, context: Context) {
           "streak-reminders",
           "digest",
           "membership-maintenance",
+          "collection-reminders",
         ].includes(jobName)
       )
         fail("NOT_FOUND", "Không có tác vụ này.", 404);
@@ -1228,23 +1364,49 @@ async function route(req: NextRequest, context: Context) {
     if (path[0] === "admin") {
       const section = path[1] ?? "overview";
       const actor = requireAdmin(
-        section === "taxonomies"
-          ? "products"
-          : section === "reviews"
-            ? "content"
-            : section === "settings" ||
-                section === "team" ||
-                section === "audit" ||
-                section === "jobs"
-              ? "settings"
-              : section === "members" ||
-                  section === "streaks" ||
-                  section === "customers"
-                ? "customers"
-                : section === "refunds"
-                  ? "payments"
-                  : section,
+        section === "receivables"
+          ? "payments"
+          : section === "taxonomies"
+            ? "products"
+            : section === "reviews"
+              ? "content"
+              : section === "settings" ||
+                  section === "team" ||
+                  section === "audit" ||
+                  section === "jobs"
+                ? "settings"
+                : section === "members" ||
+                    section === "streaks" ||
+                    section === "customers"
+                  ? "customers"
+                  : section === "refunds"
+                    ? "payments"
+                    : section,
       );
+      if (section === "receivables") {
+        if (method === "GET" && !path[2])
+          return json(await getCollections(actor, req.nextUrl.searchParams));
+        if (method === "GET" && path[2] && !path[3])
+          return json(await getCollectionDetail(actor, path[2]));
+        if (path[2] && method === "PATCH") {
+          if (path[3] === "remit")
+            return json(await remitCollection(path[2], await body(), actor));
+          if (path[3] === "payment")
+            return json(
+              await confirmOrderPayment(path[2], await body(), actor),
+            );
+          if (!path[3])
+            return json(await updateCollection(path[2], await body(), actor));
+        }
+        fail("NOT_FOUND", "Không tìm thấy thao tác công nợ.", 404);
+      }
+      if (
+        section === "orders" &&
+        path[2] &&
+        path[3] === "deliver" &&
+        method === "PATCH"
+      )
+        return json(await deliverOrder(path[2], await body(), actor));
       if (
         section === "streaks" &&
         path[2] === "rules" &&
@@ -1361,60 +1523,12 @@ async function route(req: NextRequest, context: Context) {
         ["POST", "PATCH", "DELETE"].includes(method)
       ) {
         if (method === "DELETE") {
-          await db.taxonomy.update({
-            where: { id: path[2] },
-            data: { active: false },
-          });
+          await hideCatalogTaxonomy(actor, path[2]);
           return json({ success: true });
         }
-        const input = z
-          .object({
-            kind: z.enum(["CATEGORY", "OCCASION", "COLOR", "COLLECTION"]),
-            name: z.string().min(1).max(100),
-            slug: z.string().regex(/^[a-z0-9-]+$/),
-            description: z.string().max(3000),
-            image: z.string().max(1000),
-            productIds: z.array(z.string()).max(100),
-            active: z.boolean(),
-          })
-          .parse(await body());
-        const result = await db.$transaction(async (tx) => {
-          const old = path[2]
-            ? await tx.taxonomy.findUniqueOrThrow({ where: { id: path[2] } })
-            : null;
-          if (old && old.kind !== input.kind)
-            fail("INVALID_KIND", "Tạo mục mới để đổi loại phân nhóm.");
-          if (
-            old &&
-            old.name !== input.name &&
-            ["CATEGORY", "OCCASION", "COLOR"].includes(old.kind)
-          ) {
-            const field =
-              old.kind === "CATEGORY"
-                ? "category"
-                : old.kind === "OCCASION"
-                  ? "occasion"
-                  : "color";
-            await tx.product.updateMany({
-              where: { [field]: old.name },
-              data: { [field]: input.name },
-            });
-          }
-          const entity = old
-            ? await tx.taxonomy.update({ where: { id: old.id }, data: input })
-            : await tx.taxonomy.create({ data: input });
-          await tx.audit.create({
-            data: {
-              actorId: actor.id,
-              action: "taxonomy.save",
-              entityId: entity.id,
-              detail: input,
-            },
-          });
-          return entity;
-        });
-        return json(result);
+        return json(await saveCatalogTaxonomy(actor, path[2], await body()));
       }
+
       if (
         section === "orders" &&
         path[2] &&
@@ -1624,7 +1738,7 @@ async function route(req: NextRequest, context: Context) {
               db.order.findMany({
                 orderBy: { createdAt: "desc" },
                 take: 200,
-                include: { items: true, refunds: true },
+                include: { items: true, refunds: true, receipt: true },
               }),
               db.user.count(),
               db.product.count({ where: { active: true } }),
@@ -1646,7 +1760,9 @@ async function route(req: NextRequest, context: Context) {
               netPaid: ["PAID", "PARTIALLY_REFUNDED", "REFUNDED"].includes(
                 o.paymentStatus,
               )
-                ? o.total -
+                ? (o.receipt?.destination === "SHIPPER" && !o.receipt.remittedAt
+                    ? 0
+                    : o.total) -
                   o.refunds
                     .filter((r) => r.status === "COMPLETED")
                     .reduce((s, r) => s + r.amount, 0)
@@ -1668,7 +1784,9 @@ async function route(req: NextRequest, context: Context) {
             revenue: paid.reduce(
               (s, o) =>
                 s +
-                o.total -
+                (o.receipt?.destination === "SHIPPER" && !o.receipt.remittedAt
+                  ? 0
+                  : o.total) -
                 o.refunds
                   .filter((r) => r.status === "COMPLETED")
                   .reduce((a, r) => a + r.amount, 0),
@@ -1714,6 +1832,7 @@ async function route(req: NextRequest, context: Context) {
               include: {
                 items: true,
                 history: true,
+                receivable: true,
                 refunds: { select: { amount: true, status: true } },
               },
             }),
@@ -1722,6 +1841,11 @@ async function route(req: NextRequest, context: Context) {
           return json({
             rows: rows.map((o) => ({
               ...o,
+              receivable: ["OWNER", "MANAGER", "ACCOUNTANT"].includes(
+                actor.role,
+              )
+                ? o.receivable
+                : undefined,
               guestHash: undefined,
               idempotencyKey: undefined,
               refunds: undefined,
@@ -1883,6 +2007,7 @@ async function route(req: NextRequest, context: Context) {
           .object({ settings: settingsSchema, version: z.number().int() })
           .parse(await body());
         await db.$transaction(async (tx) => {
+          await assertShopShippingAddress(tx, input.settings.address);
           const changed = await tx.setting.updateMany({
             where: { key: "shop", version: input.version },
             data: { value: input.settings, version: { increment: 1 } },
@@ -1907,97 +2032,17 @@ async function route(req: NextRequest, context: Context) {
           note: "Quota đã mở giữ nguyên; N mới áp dụng các kỳ chưa mở.",
         });
       }
-      if (section === "products" && ["POST", "PATCH"].includes(method)) {
-        const input = z
-          .object({
-            name: z.string().min(2).max(120),
-            slug: z.string().regex(/^[a-z0-9-]+$/),
-            subtitle: z.string().max(200),
-            description: z.string().max(5000),
-            category: z.string().min(1),
-            occasion: z.string().min(1),
-            color: z.string().min(1),
-            image: z
-              .string()
-              .refine(
-                (v) =>
-                  v.startsWith("/images/") ||
-                  v.startsWith("/media/") ||
-                  /^https:\/\//.test(v),
-              ),
-            badge: z.string().max(30),
-            active: z.boolean(),
-            featured: z.boolean(),
-            variants: z
-              .array(
-                z.object({
-                  id: z.string().optional(),
-                  name: z.string().min(1),
-                  sku: z.string().min(1),
-                  price: z.number().int().min(1000).max(100000000),
-                  stock: z.number().int().min(0),
-                }),
-              )
-              .min(1)
-              .max(10),
-          })
-          .parse(await body());
-        const { variants, ...data } = input;
-        const result = await atomic(async (tx) => {
-          const p = path[2]
-            ? await tx.product.update({ where: { id: path[2] }, data })
-            : await tx.product.create({
-                data: { ...data, images: [data.image] },
-              });
-          for (const v of variants) {
-            if (v.id) {
-              const old = await tx.productVariant.findUnique({
-                where: { id: v.id },
-              });
-              if (!old || old.productId !== p.id || v.stock < old.reserved)
-                fail(
-                  "INVALID_STOCK",
-                  "Tồn kho không được thấp hơn số đang giữ.",
-                );
-              await tx.productVariant.update({
-                where: { id: v.id },
-                data: {
-                  name: v.name,
-                  sku: v.sku,
-                  price: v.price,
-                  stock: v.stock,
-                },
-              });
-            } else
-              await tx.productVariant.create({
-                data: { ...v, productId: p.id },
-              });
-          }
-          await tx.audit.create({
-            data: {
-              actorId: actor.id,
-              action: "product.save",
-              entityId: p.id,
-              detail: { name: p.name },
-            },
-          });
-          return p;
-        });
-        return json(result);
-      }
+      if (
+        section === "products" &&
+        path[2] &&
+        path[3] === "visibility" &&
+        method === "PATCH"
+      )
+        return json(await setProductVisibility(actor, path[2], await body()));
+      if (section === "products" && ["POST", "PATCH"].includes(method))
+        return json(await saveCatalogProduct(actor, path[2], await body()));
       if (section === "products" && path[2] && method === "DELETE") {
-        await db.product.update({
-          where: { id: path[2] },
-          data: { active: false },
-        });
-        await db.audit.create({
-          data: {
-            actorId: actor.id,
-            action: "product.archive",
-            entityId: path[2],
-            detail: {},
-          },
-        });
+        await setProductVisibility(actor, path[2], { active: false });
         return json({ success: true });
       }
       if (
@@ -2064,12 +2109,15 @@ async function route(req: NextRequest, context: Context) {
             })
             .parse(data);
           return json(
-            path[2]
-              ? await db.deliveryZone.update({
-                  where: { id: path[2] },
-                  data: input,
-                })
-              : await db.deliveryZone.create({ data: input }),
+            await atomic(async (tx) => {
+              await assertZoneEditable(tx);
+              return path[2]
+                ? await tx.deliveryZone.update({
+                    where: { id: path[2] },
+                    data: input,
+                  })
+                : await tx.deliveryZone.create({ data: input });
+            }),
           );
         }
         const input = z

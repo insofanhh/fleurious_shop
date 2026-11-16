@@ -3,6 +3,7 @@ import { cancelOrder } from "./commerce";
 import { isOrderExpired } from "./order-expiry";
 import { fail } from "./errors";
 import { hash } from "./security";
+import { isDeliveredOrder } from "./order-workflow";
 
 export async function prepareReorder(
   id: string,
@@ -23,8 +24,11 @@ export async function prepareReorder(
       )
     )
       fail("NOT_FOUND", "Không tìm thấy đơn hàng.", 404);
-    if (!isOrderExpired(order))
-      fail("ORDER_NOT_EXPIRED", "Chỉ đặt lại từ đơn đã hết hạn.");
+    if (!isOrderExpired(order) && !isDeliveredOrder(order))
+      fail(
+        "ORDER_NOT_EXPIRED",
+        "Chỉ đặt lại từ đơn đã hết hạn hoặc đã giao thành công.",
+      );
     if (order.status === "PENDING") {
       const stopped = await cancelOrder(
         tx,
@@ -69,8 +73,19 @@ export async function prepareReorder(
         buyerEmail: order.buyerEmail,
         recipientName: order.recipientName,
         recipientPhone: order.recipientPhone,
-        address: order.address,
+        address:
+          (
+            order.shippingSnapshot as {
+              destination?: { address?: string };
+            } | null
+          )?.destination?.address ??
+          (order.shippingSnapshot as { freeformAddress?: string } | null)
+            ?.freeformAddress ??
+          order.address,
         zoneId: order.zoneId,
+        addressDetails:
+          (order.shippingSnapshot as { addressDetails?: string } | null)
+            ?.addressDetails ?? "",
         cardMessage: order.cardMessage,
         cardWritingMode: order.cardWritingMode,
         note: order.note,

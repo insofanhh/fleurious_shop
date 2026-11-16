@@ -3,11 +3,11 @@ import test, { before, after } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { db } from "../src/lib/db";
-import { defaultSettings } from "../src/lib/settings";
+import { defaultSettings, getSettings } from "../src/lib/settings";
 import {
-  createOrder,
+  createOrder as createOrderService,
   claimQr,
-  quote,
+  quote as quoteService,
   transitionOrder,
   receiveSepay,
   expireReservations,
@@ -29,7 +29,17 @@ import {
   completeOrderRefund,
 } from "../src/lib/order-payments";
 import { orderActions, orderLane } from "../src/lib/order-workflow";
-import { createAdminOrder, quoteAdminOrder } from "../src/lib/admin-orders";
+import {
+  createAdminOrder as createAdminOrderService,
+  quoteAdminOrder as quoteAdminOrderService,
+} from "../src/lib/admin-orders";
+import { setupShippingFixture, fixtureShipping } from "./fixtures/shipping";
+import {
+  orderReviewOptions,
+  createOrderReview,
+  publicProductReviews,
+  buyerProductReviews,
+} from "../src/lib/order-reviews";
 import { prepareReorder } from "../src/lib/order-reorder";
 import {
   isOrderExpired,
@@ -37,7 +47,57 @@ import {
   formatCountdown,
 } from "../src/lib/order-expiry";
 import { hash } from "../src/lib/security";
+import {
+  getOrderPaymentQr,
+  setOrderPaymentTerms,
+  downloadOrderPaymentQr,
+} from "../src/lib/order-payment-qr";
+import { trackOrder, trackingPayment } from "../src/lib/order-tracking";
+import { isPaymentOverdue, paymentDeadlineIso } from "../src/lib/order-expiry";
 let variantId: string, admin: User;
+// Commerce regression tests consume server-issued distance quotes. Provider and
+// quote validation are exercised separately in shipping.test.ts.
+const createOrder: typeof createOrderService = async (
+  raw,
+  user,
+  guest,
+  options,
+) =>
+  createOrderService(
+    {
+      ...raw,
+      ...(await fixtureShipping(user ? `user:${user.id}` : `guest:${guest}`)),
+    },
+    user,
+    guest,
+    options,
+  );
+const quote: typeof quoteService = async (raw, user, client, options) =>
+  quoteService(
+    {
+      ...raw,
+      ...(await fixtureShipping(
+        options?.shippingOwner ?? (user ? `user:${user.id}` : "guest:test"),
+      )),
+    },
+    user,
+    client,
+    {
+      ...options,
+      shippingOwner:
+        options?.shippingOwner ?? (user ? `user:${user.id}` : "guest:test"),
+    },
+  );
+const createAdminOrder: typeof createAdminOrderService = async (raw, actor) =>
+  createAdminOrderService(
+    { ...(raw as object), ...(await fixtureShipping(`user:${actor.id}`)) },
+    actor,
+  );
+const quoteAdminOrder: typeof quoteAdminOrderService = async (raw, actor) =>
+  quoteAdminOrderService(
+    { ...(raw as object), ...(await fixtureShipping(`user:${actor.id}`)) },
+    actor,
+  );
 const run = randomUUID().slice(0, 8);
 async function customer(member = false) {
   return db.user.create({
@@ -74,8 +134,21 @@ async function step(order: Order, action: string) {
   return transitionOrder(order.id, action, order.version, admin);
 }
 async function delivered(order: Order) {
-  for (const action of ["CONFIRM", "PREPARE", "READY", "DISPATCH", "DELIVER"])
+  for (const action of ["CONFIRM", "PREPARE", "READY", "DISPATCH", "DELIVER"]) {
+    if (action === "CONFIRM" && order.status !== "PENDING") continue;
     order = await step(order, action);
+  }
+  // Fixtures using this helper model a delivery with money explicitly received.
+  if (["UNPAID", "PENDING"].includes(order.paymentStatus))
+    order = await confirmOrderPayment(
+      order.id,
+      {
+        version: order.version,
+        reference: randomUUID(),
+        reason: "Đã thu tiền trong fixture giao hàng",
+      },
+      admin,
+    );
   return order;
 }
 async function qr(order: Order) {
@@ -86,6 +159,7 @@ async function qr(order: Order) {
 }
 before(async () => {
   assert.ok(new URL(process.env.DATABASE_URL!).pathname.endsWith("_test"));
+  await setupShippingFixture();
   process.env.SEPAY_ACCOUNT_NUMBER = "TESTACCOUNT";
   process.env.SEPAY_BANK = "TESTBANK";
   process.env.SEPAY_WEBHOOK_KEY = "test-only-webhook-key";
@@ -276,6 +350,10 @@ test("SePay validates amount, deduplicates IDs and consumes membership once", as
     content: order.code,
   });
   assert.equal(wrong.matched, false);
+  assert.equal(
+    (await db.order.findUniqueOrThrow({ where: { id: order.id } })).status,
+    "PENDING",
+  );
   const id = randomUUID();
   const payload = {
     id,
@@ -297,6 +375,8 @@ test("SePay validates amount, deduplicates IDs and consumes membership once", as
   assert.equal(period.consumed, 1);
   assert.equal(period.reserved, 0);
   const fresh = await db.order.findUniqueOrThrow({ where: { id: order.id } });
+  assert.equal(fresh.status, "CONFIRMED");
+  assert.equal(orderLane(fresh), "UNASSIGNED");
   await stopAndRefundOrder(fresh.id, fresh.version, "Hoàn đơn kiểm thử", admin);
 });
 test("expired transfers go to review rather than confirming an unavailable order", async () => {
@@ -344,7 +424,7 @@ test("source refund invalidates active day and unused milestone rewards", async 
     content: order.code,
   });
   order = await db.order.findUniqueOrThrow({ where: { id: order.id } });
-  order = await step(order, "CONFIRM");
+  assert.equal(order.status, "CONFIRMED");
   await claimQr(await qr(order), user);
   await stopAndRefundOrder(order.id, order.version, "Hoàn đơn kiểm thử", admin);
   assert.equal(
@@ -631,7 +711,7 @@ test("invalidating a source reward cancels its unpaid reservation without consum
     content: source.code,
   });
   source = await db.order.findUniqueOrThrow({ where: { id: source.id } });
-  source = await step(source, "CONFIRM");
+  assert.equal(source.status, "CONFIRMED");
   await claimQr(await qr(source), user);
   const reward = await db.reward.findFirstOrThrow({
     where: { userId: user.id, status: "AVAILABLE" },
@@ -793,7 +873,7 @@ test("paid orders stop for refund, release reservations once, and settle only af
     },
     admin,
   );
-  order = await step(order, "CONFIRM");
+  assert.equal(order.status, "CONFIRMED");
   await assert.rejects(
     () => step(order, "CANCEL"),
     (e: any) => e.code === "USE_REFUND",
@@ -939,7 +1019,7 @@ test("refund allocation preserves remaining merchandise and concurrent requests 
     300000,
   );
   const fresh = await db.order.findUniqueOrThrow({ where: { id: order.id } });
-  assert.equal(fresh.status, "PENDING");
+  assert.equal(fresh.status, "CONFIRMED");
   assert.equal(fresh.paymentStatus, "PAID");
   await stopAndRefundOrder(
     order.id,
@@ -989,7 +1069,7 @@ test("partial refunds before delivery preserve payment status and award net memb
   await completeOrderRefund(refund.id, randomUUID(), admin);
   order = await db.order.findUniqueOrThrow({ where: { id: order.id } });
   assert.equal(order.paymentStatus, "PARTIALLY_REFUNDED");
-  assert.equal(orderLane(order), "PENDING");
+  assert.equal(orderLane(order), "UNASSIGNED");
   const done = await delivered(order);
   assert.equal(done.paymentStatus, "PARTIALLY_REFUNDED");
   const sum = await db.membershipSpendLedger.aggregate({
@@ -1099,6 +1179,69 @@ test("Kanban lanes distinguish unpaid cancellation, active partial refund and st
   );
 });
 
+test("delivered COD stays unpaid, consumes stock once and awards spend only after receipt", async () => {
+  const user = await customer(true);
+  let order = await createOrder(input(), user, "test");
+  const before = await db.productVariant.findUniqueOrThrow({
+    where: { id: variantId },
+  });
+  for (const action of ["CONFIRM", "PREPARE", "READY", "DISPATCH", "DELIVER"])
+    order = await step(order, action);
+  assert.equal(order.paymentStatus, "UNPAID");
+  assert.ok(
+    (await db.qrGrant.findUniqueOrThrow({ where: { orderId: order.id } }))
+      .eligibleAt,
+  );
+  assert.equal(
+    await db.membershipSpendLedger.count({ where: { orderId: order.id } }),
+    0,
+  );
+  const stock = await db.productVariant.findUniqueOrThrow({
+    where: { id: variantId },
+  });
+  assert.equal(stock.stock, before.stock - 1);
+  assert.equal(stock.reserved, before.reserved - 1);
+  await confirmOrderPayment(
+    order.id,
+    {
+      version: order.version,
+      reference: randomUUID(),
+      reason: "Đã xác minh thu tiền",
+    },
+    admin,
+  );
+  assert.equal(
+    (await db.productVariant.findUniqueOrThrow({ where: { id: variantId } }))
+      .stock,
+    stock.stock,
+  );
+  assert.equal(
+    await db.membershipSpendLedger.count({ where: { orderId: order.id } }),
+    1,
+  );
+});
+
+test("manual order creation supports delivered but unpaid COD with a receivable", async () => {
+  const raw = {
+    ...input({ deliveryDay: dayKey() }),
+    source: "ZALO",
+    initialStage: "DELIVERED",
+    initialPayment: "UNPAID",
+  };
+  const q = await quoteAdminOrder(raw, admin);
+  const order = await createAdminOrder(
+    { ...raw, expectedTotal: q.total },
+    admin,
+  );
+  assert.equal(order.fulfillment, "DELIVERED");
+  assert.equal(order.paymentStatus, "UNPAID");
+  assert.equal(
+    (await db.codReceivable.findUniqueOrThrow({ where: { orderId: order.id } }))
+      .amount,
+    q.total,
+  );
+});
+
 test("only order creators can create channel sales; invalid initial payment states leave no order", async () => {
   const raw = {
     ...input(),
@@ -1120,22 +1263,6 @@ test("only order creators can create channel sales; invalid initial payment stat
       (e: any) => e.code === "FORBIDDEN",
     );
   await assert.rejects(
-    () =>
-      createAdminOrder(
-        { ...raw, paymentMethod: "SEPAY", initialStage: "PREPARING" },
-        admin,
-      ),
-    (e: any) => e.code === "PAYMENT_REQUIRED",
-  );
-  await assert.rejects(
-    () =>
-      createAdminOrder(
-        { ...raw, initialStage: "DELIVERED", deliveryDay: dayKey() },
-        admin,
-      ),
-    (e: any) => e.code === "PAYMENT_REQUIRED",
-  );
-  await assert.rejects(
     () => createAdminOrder({ ...raw, initialPayment: "PAID" }, admin),
     (e: any) => e.code === "PAYMENT_EVIDENCE_REQUIRED",
   );
@@ -1146,6 +1273,528 @@ test("only order creators can create channel sales; invalid initial payment stat
   assert.equal(
     await db.order.count({ where: { idempotencyKey: raw.idempotencyKey } }),
     0,
+  );
+});
+
+test("admin automatically quotes without buyer contact, proof or an idempotency key", async () => {
+  const raw = input({ paymentMethod: "SEPAY" });
+  const q = await quoteAdminOrder(
+    {
+      items: raw.items,
+      zoneId: raw.zoneId,
+      deliveryDay: raw.deliveryDay,
+      slotId: raw.slotId,
+      paymentMethod: raw.paymentMethod,
+      initialStage: "PREPARING",
+    },
+    admin,
+  );
+  assert.equal(q.total, 530000);
+  assert.equal(
+    await db.order.count({ where: { idempotencyKey: raw.idempotencyKey } }),
+    0,
+  );
+  await assert.rejects(
+    () => quoteAdminOrder({ ...raw, voucherCode: "DOESNOTEXIST" }, admin),
+    (e: any) => e.code === "VOUCHER_UNAVAILABLE",
+  );
+});
+
+async function onlineManual(stage = "PENDING", terms?: number | null) {
+  const raw = {
+    ...input({
+      paymentMethod: "SEPAY",
+      deliveryDay: stage === "DELIVERED" ? dayKey() : shiftDay(dayKey(), 1),
+    }),
+    source: "FACEBOOK",
+    initialStage: stage,
+    initialPayment: "UNPAID",
+    paymentTermMinutes: terms,
+  };
+  const q = await quoteAdminOrder(raw, admin);
+  return createAdminOrder({ ...raw, expectedTotal: q.total }, admin);
+}
+
+test("all manual SePay stages are available while unpaid, with independent payment terms and stock", async () => {
+  for (const stage of [
+    "PENDING",
+    "CONFIRMED",
+    "PREPARING",
+    "READY",
+    "OUT_FOR_DELIVERY",
+    "DELIVERED",
+  ]) {
+    const before = await db.productVariant.findUniqueOrThrow({
+      where: { id: variantId },
+    });
+    const order = await onlineManual(stage);
+    assert.equal(order.manualPayment, true);
+    assert.equal(order.paymentStatus, "UNPAID");
+    assert.equal(
+      order.fulfillment,
+      stage === "PENDING" || stage === "CONFIRMED" ? "UNASSIGNED" : stage,
+    );
+    assert.ok(
+      Math.abs(
+        order.paymentDueAt!.getTime() - order.createdAt.getTime() - 86400000,
+      ) < 10000,
+    );
+    const qr = await getOrderPaymentQr(admin, order.id);
+    assert.ok(qr.url);
+    assert.equal(qr.code, order.code);
+    assert.equal(qr.deadline, order.paymentDueAt!.toISOString());
+    const grant = await db.qrGrant.findUniqueOrThrow({
+      where: { orderId: order.id },
+    });
+    assert.equal(
+      !!grant.eligibleAt,
+      stage === "DELIVERED",
+      "Unpaid confirmation must not unlock the streak QR",
+    );
+    const stock = await db.productVariant.findUniqueOrThrow({
+      where: { id: variantId },
+    });
+    assert.equal(stock.stock, before.stock - (stage === "DELIVERED" ? 1 : 0));
+  }
+});
+
+test("overdue manual payment keeps production and reservations; late transfers require review and can be verified manually", async () => {
+  const reference = `LATE-${randomUUID()}`;
+  let order = await onlineManual();
+  order = await db.order.update({
+    where: { id: order.id },
+    data: { expiresAt: new Date(0), paymentDueAt: new Date(0) },
+  });
+  await expireReservations();
+  assert.equal(
+    (await db.order.findUniqueOrThrow({ where: { id: order.id } })).status,
+    "PENDING",
+  );
+  assert.equal(isOrderExpired(order), false);
+  assert.equal(isPaymentOverdue(order), true);
+  assert.equal((await getOrderPaymentQr(admin, order.id)).url, null);
+  const incoming = await receiveSepay({
+    id: `late-manual-${randomUUID()}`,
+    referenceCode: reference,
+    accountNumber: "TESTACCOUNT",
+    content: order.code,
+    transferAmount: order.total,
+    transferType: "in",
+  });
+  assert.equal(incoming.matched, false);
+  order = await confirmOrderPayment(
+    order.id,
+    {
+      version: order.version,
+      reference,
+      reason: "Đã đối soát chuyển muộn đúng tiền",
+    },
+    admin,
+  );
+  assert.equal(order.paymentStatus, "PAID");
+  assert.equal(
+    (
+      await db.payment.findFirstOrThrow({
+        where: { orderId: order.id, reference },
+      })
+    ).state,
+    "MATCHED",
+  );
+});
+
+test("unlimited manual payment matches long after reservation time; webhook replay does not pay twice", async () => {
+  let order = await onlineManual("PREPARING", null);
+  assert.equal(order.paymentDueAt, null);
+  assert.equal(paymentDeadlineIso(order), undefined);
+  order = await db.order.update({
+    where: { id: order.id },
+    data: { expiresAt: new Date(0) },
+  });
+  assert.ok((await getOrderPaymentQr(admin, order.id)).url);
+  const incoming = {
+    id: `unlimited-${randomUUID()}`,
+    accountNumber: "TESTACCOUNT",
+    content: order.code,
+    transferAmount: order.total,
+    transferType: "in" as const,
+  };
+  assert.equal((await receiveSepay(incoming)).matched, true);
+  assert.equal((await receiveSepay(incoming)).duplicate, true);
+  assert.equal(
+    await db.payment.count({ where: { providerId: String(incoming.id) } }),
+    1,
+  );
+  const done = await db.order.findUniqueOrThrow({ where: { id: order.id } });
+  assert.equal(done.fulfillment, "PREPARING");
+  assert.equal(done.paymentStatus, "PAID");
+  assert.ok(
+    (await db.qrGrant.findUniqueOrThrow({ where: { orderId: order.id } }))
+      .eligibleAt,
+  );
+});
+
+test("SePay automatically queues paid website and manual pending orders and preserves every advanced stage", async () => {
+  const website = await createOrder(
+    input({ paymentMethod: "SEPAY" }),
+    null,
+    "test",
+  );
+  const cases = [website];
+  for (const stage of [
+    "PENDING",
+    "CONFIRMED",
+    "PREPARING",
+    "READY",
+    "OUT_FOR_DELIVERY",
+    "DELIVERED",
+  ])
+    cases.push(await onlineManual(stage));
+  for (const order of cases) {
+    const event = {
+      id: `auto-queue-${randomUUID()}`,
+      transferType: "in" as const,
+      accountNumber: "TESTACCOUNT",
+      transferAmount: order.total,
+      content: order.code,
+    };
+    assert.equal((await receiveSepay(event)).matched, true);
+    const paid = await db.order.findUniqueOrThrow({ where: { id: order.id } });
+    assert.equal(paid.paymentStatus, "PAID");
+    assert.equal(
+      paid.status,
+      order.status === "PENDING" ? "CONFIRMED" : order.status,
+    );
+    assert.equal(paid.fulfillment, order.fulfillment);
+    assert.equal(
+      orderLane(paid),
+      order.status === "PENDING" ? "UNASSIGNED" : orderLane(order),
+    );
+    assert.equal(paid.version, order.version + 1);
+    assert.equal(
+      await db.orderHistory.count({
+        where: {
+          orderId: order.id,
+          text: { startsWith: "Tự động xác nhận đơn sau thanh toán" },
+        },
+      }),
+      order.status === "PENDING" ? 1 : 0,
+    );
+    assert.equal((await receiveSepay(event)).duplicate, true);
+    assert.equal(
+      (await db.order.findUniqueOrThrow({ where: { id: order.id } })).version,
+      paid.version,
+    );
+  }
+});
+
+test("manual confirmation also queues new paid orders once and never moves prepared orders backwards", async () => {
+  const website = await createOrder(
+    input({ paymentMethod: "SEPAY" }),
+    null,
+    "test",
+  );
+  const offline = await onlineManual();
+  const preparing = await onlineManual("PREPARING");
+  for (const order of [website, offline, preparing]) {
+    const proof = {
+      version: order.version,
+      reference: randomUUID(),
+      reason: "Đã đối soát đủ tiền để xác nhận đơn",
+    };
+    const [a, b] = await Promise.all([
+      confirmOrderPayment(order.id, proof, admin),
+      confirmOrderPayment(order.id, proof, { ...admin, role: "ACCOUNTANT" }),
+    ]);
+    assert.equal(a.status, "CONFIRMED");
+    assert.equal(b.status, "CONFIRMED");
+    assert.equal(a.fulfillment, order.fulfillment);
+    assert.equal(a.version, order.version + 1);
+    assert.equal(
+      orderLane(a),
+      order.fulfillment === "PREPARING" ? "PREPARING" : "UNASSIGNED",
+    );
+    assert.equal(
+      await db.audit.count({
+        where: { entityId: order.id, action: "order.payment_confirmed" },
+      }),
+      1,
+    );
+  }
+});
+
+test("automatic confirmation honors the configured streak QR delivery trigger", async () => {
+  const settings = await getSettings();
+  try {
+    await db.setting.update({
+      where: { key: "shop" },
+      data: { value: { ...settings, qrTrigger: "DELIVERED" } },
+    });
+    let order = await createOrder(
+      input({ paymentMethod: "SEPAY" }),
+      null,
+      "test",
+    );
+    await receiveSepay({
+      id: randomUUID(),
+      transferType: "in",
+      accountNumber: "TESTACCOUNT",
+      transferAmount: order.total,
+      content: order.code,
+    });
+    order = await db.order.findUniqueOrThrow({ where: { id: order.id } });
+    assert.equal(order.status, "CONFIRMED");
+    assert.equal(orderLane(order), "UNASSIGNED");
+    assert.equal(
+      (await db.qrGrant.findUniqueOrThrow({ where: { orderId: order.id } }))
+        .eligibleAt,
+      null,
+    );
+    order = await delivered(order);
+    assert.ok(
+      (await db.qrGrant.findUniqueOrThrow({ where: { orderId: order.id } }))
+        .eligibleAt,
+    );
+  } finally {
+    await db.setting.update({
+      where: { key: "shop" },
+      data: { value: settings },
+    });
+  }
+});
+
+test("website checkout cannot forge unlimited manual terms or prepare an unpaid SePay order", async () => {
+  const forged = {
+    ...input({ paymentMethod: "SEPAY" }),
+    manualPayment: true,
+    paymentDueAt: null,
+    source: "FACEBOOK",
+    createdBy: admin.id,
+  };
+  const order = await createOrder(forged, null, "test");
+  assert.equal(order.manualPayment, false);
+  assert.equal(order.source, "WEBSITE");
+  assert.ok(
+    Math.abs(
+      order.expiresAt.getTime() - order.createdAt.getTime() - 15 * 60000,
+    ) < 10000,
+  );
+  await assert.rejects(
+    () => step(order, "CONFIRM"),
+    (e: any) => e.code === "INVALID_TRANSITION",
+  );
+  await step(order, "CANCEL");
+});
+
+test("late payment after manual delivery records member spend once without consuming stock twice", async () => {
+  const user = await customer(true);
+  const raw = {
+    ...input({ paymentMethod: "SEPAY", deliveryDay: dayKey() }),
+    customerId: user.id,
+    source: "INSTAGRAM",
+    initialStage: "DELIVERED",
+    initialPayment: "UNPAID",
+  };
+  const q = await quoteAdminOrder(raw, admin);
+  const order = await createAdminOrder(
+    { ...raw, expectedTotal: q.total },
+    admin,
+  );
+  const stock = await db.productVariant.findUniqueOrThrow({
+    where: { id: variantId },
+  });
+  assert.equal(
+    await db.membershipSpendLedger.count({ where: { orderId: order.id } }),
+    0,
+  );
+  const incoming = {
+    id: `after-delivery-${randomUUID()}`,
+    accountNumber: "TESTACCOUNT",
+    transferType: "in" as const,
+    transferAmount: order.total,
+    content: order.code,
+  };
+  assert.equal((await receiveSepay(incoming)).matched, true);
+  assert.equal((await receiveSepay(incoming)).duplicate, true);
+  assert.equal(
+    await db.membershipSpendLedger.count({ where: { orderId: order.id } }),
+    1,
+  );
+  assert.equal(
+    (await db.productVariant.findUniqueOrThrow({ where: { id: variantId } }))
+      .stock,
+    stock.stock,
+  );
+});
+
+test("admin can renew or remove a manual deadline, with version, role and paid-state guards", async () => {
+  let order = await onlineManual("READY", 15);
+  await assert.rejects(
+    () =>
+      setOrderPaymentTerms({ ...admin, role: "DELIVERY" }, order.id, {
+        version: order.version,
+        minutes: null,
+        reason: "Thử bỏ hạn",
+      }),
+    (e: any) => e.code === "FORBIDDEN",
+  );
+  await setOrderPaymentTerms(admin, order.id, {
+    version: order.version,
+    minutes: null,
+    reason: "Khách chờ xác nhận từ công ty",
+  });
+  await assert.rejects(
+    () =>
+      setOrderPaymentTerms(admin, order.id, {
+        version: order.version,
+        minutes: 1440,
+        reason: "Gia hạn thanh toán",
+      }),
+    (e: any) => e.code === "STALE_ORDER_VERSION",
+  );
+  order = await db.order.findUniqueOrThrow({ where: { id: order.id } });
+  assert.equal(order.paymentDueAt, null);
+  await setOrderPaymentTerms(admin, order.id, {
+    version: order.version,
+    minutes: 1440,
+    reason: "Chốt thời hạn cùng khách",
+  });
+  order = await db.order.findUniqueOrThrow({ where: { id: order.id } });
+  assert.ok(order.paymentDueAt! > new Date());
+  await confirmOrderPayment(
+    order.id,
+    {
+      version: order.version,
+      reference: randomUUID(),
+      reason: "Đã nhận đủ tiền từ khách",
+    },
+    admin,
+  );
+  order = await db.order.findUniqueOrThrow({ where: { id: order.id } });
+  await assert.rejects(
+    () =>
+      setOrderPaymentTerms(admin, order.id, {
+        version: order.version,
+        minutes: null,
+        reason: "Không được sửa đơn đã trả",
+      }),
+    (e: any) => e.code === "PAYMENT_TERMS_LOCKED",
+  );
+});
+
+test("public tracking normalizes codes and returns progress without personal or financial internals", async () => {
+  const order = await onlineManual("OUT_FOR_DELIVERY");
+  const result = await trackOrder({ code: ` ${order.code.toLowerCase()} ` });
+  assert.equal(result.code, order.code);
+  assert.equal(result.fulfillment, "OUT_FOR_DELIVERY");
+  assert.deepEqual(
+    Object.keys(result).sort(),
+    [
+      "canPay",
+      "code",
+      "status",
+      "fulfillment",
+      "paymentStatus",
+      "createdAt",
+      "deliveryDay",
+      "slotLabel",
+      "deliveredAt",
+      "expired",
+      "paymentOverdue",
+      "items",
+      "serverNow",
+    ].sort(),
+  );
+  const text = JSON.stringify(result);
+  for (const privateValue of [
+    order.id,
+    order.buyerEmail,
+    order.recipientName,
+    order.recipientPhone,
+    order.address,
+    order.guestHash!,
+  ])
+    assert.ok(!text.includes(privateValue), privateValue);
+  assert.ok(!text.includes("variantId"));
+  assert.ok(!text.includes("history"));
+  assert.ok(!text.includes("paymentQr"));
+  await assert.rejects(
+    () => trackOrder({ code: "NO-SUCH-ORDER" }),
+    (e: any) => e.code === "TRACKING_NOT_FOUND",
+  );
+  await assert.rejects(
+    () => trackOrder({ code: "../../admin" }),
+    (e: any) => e.code === "TRACKING_NOT_FOUND",
+  );
+});
+
+test("public payment provides only transfer instructions and rejects stopped, overdue, COD and paid orders", async () => {
+  const order = await onlineManual();
+  const data = await trackingPayment({ code: order.code.toLowerCase() });
+  assert.deepEqual(
+    Object.keys(data).sort(),
+    [
+      "code",
+      "amount",
+      "url",
+      "bank",
+      "accountNumber",
+      "accountName",
+      "expiresAt",
+      "serverNow",
+    ].sort(),
+  );
+  assert.equal(data.amount, order.total);
+  assert.equal(new URL(data.url).searchParams.get("des"), order.code);
+  assert.equal((await trackOrder({ code: order.code })).canPay, true);
+  for (const change of [
+    { paymentDueAt: new Date(0) },
+    { paymentDueAt: null, status: "CANCELLED" as const },
+    { status: "CONFIRMED" as const, paymentStatus: "PAID" as const },
+    { paymentStatus: "PENDING" as const, paymentMethod: "COD" as const },
+  ]) {
+    await db.order.update({ where: { id: order.id }, data: change });
+    assert.equal((await trackOrder({ code: order.code })).canPay, false);
+    await assert.rejects(
+      () => trackingPayment({ code: order.code }),
+      (e: any) => e.code === "PAYMENT_QR_UNAVAILABLE",
+    );
+  }
+  await db.order.update({
+    where: { id: order.id },
+    data: {
+      paymentMethod: "SEPAY",
+      manualPayment: false,
+      status: "PENDING",
+      expiresAt: new Date(0),
+    },
+  });
+  assert.equal((await trackOrder({ code: order.code })).canPay, false);
+  await assert.rejects(
+    () => trackingPayment({ code: order.code }),
+    (e: any) => e.code === "PAYMENT_QR_UNAVAILABLE",
+  );
+});
+
+test("payment QR download uses trusted URL, returns PNG and refuses an expired request", async () => {
+  const order = await onlineManual();
+  const QRCode = await import("qrcode");
+  const sharp = (await import("sharp")).default;
+  const source = await QRCode.toBuffer("TEST-BANK-QR");
+  const result = await downloadOrderPaymentQr(admin, order.id, async (url) => {
+    assert.ok(String(url).startsWith("https://vietqr.app/img?"));
+    assert.equal(new URL(String(url)).searchParams.get("des"), order.code);
+    return new Response(new Uint8Array(source), {
+      headers: { "content-type": "image/png" },
+    });
+  });
+  assert.equal((await sharp(result.png).metadata()).format, "png");
+  await db.order.update({
+    where: { id: order.id },
+    data: { paymentDueAt: new Date(0) },
+  });
+  await assert.rejects(
+    () => downloadOrderPaymentQr(admin, order.id),
+    (e: any) => e.code === "PAYMENT_QR_UNAVAILABLE",
   );
 });
 
@@ -1251,7 +1900,7 @@ test("every admin initial stage shares stock, paid benefits, QR and Kanban workf
     assert.equal(order.source, raw.source);
     assert.equal(
       orderLane(order),
-      stage === "CONFIRMED" ? "UNASSIGNED" : stage,
+      ["PENDING", "CONFIRMED"].includes(stage) ? "UNASSIGNED" : stage,
     );
     assert.equal(
       order.stockState,
@@ -1273,7 +1922,7 @@ test("every admin initial stage shares stock, paid benefits, QR and Kanban workf
     const grant = await db.qrGrant.findUniqueOrThrow({
       where: { orderId: order.id },
     });
-    assert.equal(!!grant.eligibleAt, stage !== "PENDING");
+    assert.equal(!!grant.eligibleAt, true);
     assert.equal(
       await db.notification.count({
         where: { userId: user.id, url: `/orders/${order.id}` },
@@ -1635,4 +2284,233 @@ test("analytics retries only a failed vendor without resending successful GA4 ev
       if (value === undefined) delete process.env[key!];
       else process.env[key!] = value;
   }
+});
+
+test("delivered reorder prepares a fresh purchase without changing the completed order, stock, money or rewards", async () => {
+  const user = await customer();
+  const order = await delivered(await createOrder(input(), user, "test"));
+  const snapshot = await db.order.findUniqueOrThrow({
+    where: { id: order.id },
+  });
+  const stock = await db.productVariant.findUniqueOrThrow({
+    where: { id: variantId },
+  });
+  const count = await db.order.count();
+  const grant = await db.qrGrant.findUnique({ where: { orderId: order.id } });
+  const result = await prepareReorder(order.id, user.id);
+  assert.deepEqual(result.items, [{ variantId, quantity: 1 }]);
+  assert.equal(result.draft.recipientName, order.recipientName);
+  assert.deepEqual(
+    await db.order.findUniqueOrThrow({ where: { id: order.id } }),
+    snapshot,
+  );
+  assert.deepEqual(
+    await db.productVariant.findUniqueOrThrow({ where: { id: variantId } }),
+    stock,
+  );
+  assert.deepEqual(
+    await db.qrGrant.findUnique({ where: { orderId: order.id } }),
+    grant,
+  );
+  assert.equal(await db.order.count(), count);
+  await assert.rejects(
+    () => prepareReorder(order.id, "another-buyer"),
+    (e: any) => e.code === "NOT_FOUND",
+  );
+});
+
+test("reviews require the delivered order's buyer and an actually purchased product, and reject duplicate races", async () => {
+  const user = await customer(),
+    other = await customer();
+  const order = await createOrder(input(), user, "test");
+  const productId = (
+    await db.productVariant.findUniqueOrThrow({ where: { id: variantId } })
+  ).productId;
+  const payload = {
+    productId,
+    rating: 4,
+    body: "Bó hoa rất đẹp, giao đúng giờ đã hẹn.",
+  };
+  assert.equal(
+    (await orderReviewOptions(order.id, { userId: user.id })).canReview,
+    false,
+  );
+  await assert.rejects(
+    () => createOrderReview(order.id, payload, { userId: user.id }),
+    (e: any) => e.code === "NOT_DELIVERED",
+  );
+  await delivered(order);
+  await assert.rejects(
+    () => orderReviewOptions(order.id, { userId: other.id }),
+    (e: any) => e.code === "NOT_FOUND",
+  );
+  await assert.rejects(
+    () => createOrderReview(order.id, payload, { userId: other.id }),
+    (e: any) => e.code === "NOT_FOUND",
+  );
+  await assert.rejects(
+    () =>
+      createOrderReview(
+        order.id,
+        { ...payload, productId: "unrelated-product" },
+        { userId: user.id },
+      ),
+    (e: any) => e.code === "NOT_PURCHASED",
+  );
+  await assert.rejects(() =>
+    createOrderReview(order.id, { ...payload, rating: 6 }, { userId: user.id }),
+  );
+  const results = await Promise.allSettled(
+    [1, 2].map(() =>
+      createOrderReview(order.id, payload, {
+        userId: user.id,
+        name: user.name,
+      }),
+    ),
+  );
+  assert.equal(results.filter((r) => r.status === "fulfilled").length, 1);
+  assert.equal(
+    (results.find((r) => r.status === "rejected") as PromiseRejectedResult)
+      .reason.code,
+    "REVIEW_EXISTS",
+  );
+  const rows = await db.review.findMany({ where: { orderId: order.id } });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].status, "PENDING");
+  assert.equal(
+    (await buyerProductReviews(user.id, productId)).filter(
+      (r) => r.orderId === order.id,
+    ).length,
+    1,
+  );
+  const options = await orderReviewOptions(order.id, { userId: user.id });
+  assert.equal(options.products[0].review?.id, rows[0].id);
+  assert.deepEqual(
+    Object.keys(options).sort(),
+    ["code", "canReview", "products"].sort(),
+  );
+  const payloads = await db.outbox.findMany({
+    where: { event: "review.created" },
+  });
+  assert.equal(
+    payloads.filter((event) => (event.payload as any).reviewId === rows[0].id)
+      .length,
+    1,
+  );
+});
+
+test("a guest's verified order cookie can review delivered COD before collection, but not a refunded order", async () => {
+  const guest = randomUUID();
+  let order = await createOrder(input(), null, hash(guest));
+  for (const action of ["CONFIRM", "PREPARE", "READY", "DISPATCH", "DELIVER"])
+    order = await step(order, action);
+  assert.equal(order.paymentStatus, "UNPAID");
+  const productId = (
+    await db.productVariant.findUniqueOrThrow({ where: { id: variantId } })
+  ).productId;
+  const payload = {
+    productId,
+    rating: 5,
+    body: "Hoa nhận được rất xinh, cảm ơn cửa hàng.",
+  };
+  await assert.rejects(
+    () => createOrderReview(order.id, payload, { guestToken: "wrong-cookie" }),
+    (e: any) => e.code === "NOT_FOUND",
+  );
+  const review = await createOrderReview(order.id, payload, {
+    guestToken: guest,
+  });
+  assert.equal(
+    (await orderReviewOptions(order.id, { guestToken: guest })).products[0]
+      .review?.id,
+    review.id,
+  );
+  await db.order.update({
+    where: { id: order.id },
+    data: { status: "REFUNDED" },
+  });
+  assert.equal(
+    (await orderReviewOptions(order.id, { guestToken: guest })).canReview,
+    false,
+  );
+  await assert.rejects(
+    () => createOrderReview(order.id, payload, { guestToken: guest }),
+    (e: any) => e.code === "NOT_DELIVERED",
+  );
+});
+
+test("public reviews publish only moderated purchase details and the full approved average without private order data", async () => {
+  const product = await db.product.create({
+    data: {
+      name: "Hoa dành cho review",
+      slug: `review-${randomUUID()}`,
+      subtitle: "Review",
+      description: "Review",
+      category: "Review",
+      occasion: "Review",
+      color: "Review",
+      image: "/images/roses.webp",
+      images: [],
+      variants: {
+        create: [
+          { name: "M", sku: randomUUID(), price: 500000, stock: 100 },
+          { name: "L", sku: randomUUID(), price: 700000, stock: 100 },
+        ],
+      },
+    },
+    include: { variants: true },
+  });
+  const user = await customer();
+  const order = await delivered(
+    await createOrder(
+      input({
+        items: product.variants.map((v) => ({ variantId: v.id, quantity: 1 })),
+      }),
+      user,
+      "test",
+    ),
+  );
+  const options = await orderReviewOptions(order.id, { userId: user.id });
+  assert.equal(options.products.length, 1);
+  assert.deepEqual(options.products[0].variants, ["M", "L"]);
+  const review = await createOrderReview(
+    order.id,
+    {
+      productId: product.id,
+      rating: 4,
+      body: "Bó hoa hai kích thước đều được chuẩn bị rất đẹp.",
+    },
+    { userId: user.id, name: user.name },
+  );
+  assert.equal((await publicProductReviews(product.id)).total, 0);
+  await db.review.update({
+    where: { id: review.id },
+    data: { status: "APPROVED" },
+  });
+  const visible = await publicProductReviews(product.id);
+  assert.equal(visible.total, 1);
+  assert.equal(visible.average, 4);
+  assert.deepEqual(visible.reviews[0].product, {
+    name: product.name,
+    image: product.image,
+    variants: ["M", "L"],
+  });
+  const text = JSON.stringify(visible);
+  for (const secret of [
+    order.id,
+    order.code,
+    user.id,
+    user.email,
+    order.address,
+    order.recipientName,
+    order.recipientPhone,
+  ])
+    assert.ok(!text.includes(secret));
+  assert.ok(!text.includes("orderId"));
+  assert.ok(!text.includes("userId"));
+  await db.review.update({
+    where: { id: review.id },
+    data: { status: "REJECTED" },
+  });
+  assert.equal((await publicProductReviews(product.id)).total, 0);
 });
