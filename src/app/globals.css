@@ -1174,7 +1174,9 @@ textarea {
   font-size: 12px;
 }
 .page-loading {
-  min-height: 55vh;
+  /* Keep the footer below the initial viewport while streamed content loads. */
+  min-height: 100vh;
+  min-height: 100svh;
   display: flex;
   align-items: center;
   justify-content: center;

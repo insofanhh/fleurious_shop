@@ -39,6 +39,7 @@ async function main() {
       "--test-timeout=60000",
       "tests/rules.test.ts",
       "tests/masonry.test.ts",
+      "tests/page-metadata.test.ts",
       "tests/order-journey.test.ts",
       "tests/catalog-admin.test.ts",
       "tests/catalog-image.test.ts",

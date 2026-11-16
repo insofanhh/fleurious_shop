@@ -4,6 +4,17 @@ Ngày kiểm tra: 16/11/2026. Website: https://fleurious-shop.vercel.app/.
 
 Phạm vi: kiểm tra production, đối chiếu mã nguồn và tài liệu Google. Đây là báo cáo và kế hoạch cải thiện; chưa sửa mã nguồn ứng dụng, chưa deploy hoặc thao tác tài khoản Google Search Console/Business Profile trong lượt này.
 
+## Cập nhật bản sửa local — 16/11/2026
+
+Sau khi người dùng phản ánh PageSpeed vẫn thiếu title, đã triển khai hai hạng mục P0 ở local:
+
+- Metadata dùng title tuyệt đối không rỗng cho trang chủ, trang nội dung, collection và sản phẩm; đồng bộ Open Graph/Twitter. Nội dung CMS có tên/mô tả riêng, các luồng tài khoản/đơn hàng vẫn noindex.
+- Màn loading giữ tối thiểu một chiều cao viewport để `closing-note` không xuất hiện giữa màn hình rồi bị nội dung streamed đẩy xuống ở lần tải đầu trang chủ.
+
+Xác minh trên production build local với database kiểm thử tách biệt: 3 ca hồi quy metadata đạt; typecheck/build thành công; title có trong HTML của 8 trang mẫu và cập nhật khi chuyển trang; không ghi nhận lỗi JavaScript trong hai viewport 1350/390 px. Lighthouse desktop local cho SEO 100 và CLS khoảng 0,0021. Điểm Performance local là 95 nhưng không so trực tiếp với production 78 vì khác môi trường mạng/dữ liệu.
+
+Đây chưa phải kết quả đo lại production. Các phần canonical, soft 404, llms/ARD, ảnh responsive và những hạng mục khác trong báo cáo dưới đây chưa được triển khai bởi bản sửa này. Các số liệu ở mục 1 là baseline production trước sửa.
+
 ## 1. Kết quả kiểm tra thật
 
 Lighthouse 13.6.0, desktop, một lần chạy với simulated throttling:

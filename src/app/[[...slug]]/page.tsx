@@ -2,55 +2,47 @@ import { notFound } from "next/navigation";
 import { Storefront } from "@/components/storefront";
 import { db } from "@/lib/db";
 import type { Metadata } from "next";
-import { brandSocialMetadata, BRAND_DESCRIPTION } from "@/lib/social-metadata";
+import { publicPageMetadata, pageTitles } from "@/lib/page-metadata";
 type Props = { params: Promise<{ slug?: string[] }> };
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const slug = (await params).slug ?? [];
   if (slug[0] === "flowers" && slug[1]) {
-    const product = await db.product.findUnique({ where: { slug: slug[1] } });
-    return {
+    const product = await db.product.findFirst({
+      where: { slug: slug[1], active: true },
+    });
+    return publicPageMetadata(slug, {
       title: product?.name ?? "Không tìm thấy",
       description: product?.subtitle,
-      ...brandSocialMetadata(
-        `${product?.name ?? "Không tìm thấy"} · Fleurious`,
-        product?.subtitle || BRAND_DESCRIPTION,
-      ),
-    };
+    });
   }
-  const names: Record<string, string> = {
-    flowers: "Tìm một bó hoa",
-    membership: "Hội viên Fleurious",
-    streak: "Những ngày có hoa",
-    cart: "Giỏ hoa",
-    checkout: "Thanh toán",
-    account: "Tài khoản",
-    notifications: "Thông báo",
-    auth: "Đăng nhập",
-    orders: "Đơn hàng",
-    "track-order": "Theo dõi đơn hàng",
-    q: "Nhận một ngày có hoa",
-  };
-  return {
-    title: names[slug[0]],
-    ...brandSocialMetadata(
-      names[slug[0]] ? `${names[slug[0]]} · Fleurious` : undefined,
-    ),
-    robots:
-      [
-        "notifications",
-        "account",
-        "auth",
-        "orders",
-        "track-order",
-        "q",
-        "checkout",
-        "cart",
-        "streak",
-      ].includes(slug[0]) ||
-      (slug[0] === "membership" && slug[1] === "invoices")
-        ? { index: false, follow: false }
-        : undefined,
-  };
+  if (slug[0] === "collections" && slug[1]) {
+    const taxonomy = await db.taxonomy.findFirst({
+      where: { slug: slug[1], active: true },
+      select: { name: true },
+    });
+    return publicPageMetadata(
+      slug,
+      taxonomy ? { title: `Hoa ${taxonomy.name}` } : undefined,
+    );
+  }
+  if (
+    slug[0] &&
+    (["about", "delivery", "returns", "privacy", "cham-hoa"].includes(
+      slug[0],
+    ) ||
+      !pageTitles[slug[0]])
+  ) {
+    const content = await db.content.findFirst({
+      where: { slug: slug[0], active: true, kind: { in: ["page", "article"] } },
+      select: { title: true, body: true },
+    });
+    if (content)
+      return publicPageMetadata(slug, {
+        title: content.title,
+        description: content.body,
+      });
+  }
+  return publicPageMetadata(slug);
 }
 export default async function Page({ params }: Props) {
   const segments = (await params).slug ?? [];
