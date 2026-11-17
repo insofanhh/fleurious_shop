@@ -1,5 +1,6 @@
 import { isOrderExpired } from "./order-expiry";
 type WorkflowOrder = {
+  dailyPlanId?: string | null;
   expiresAt?: string | Date;
   expiredAt?: string | Date | null;
   status: string;
@@ -77,7 +78,11 @@ export function orderActions(o: WorkflowOrder, role: string) {
     )
       actions.push({ value: "CANCEL", label: "Hủy đơn" });
   }
-  if (finance && ["PAID", "PARTIALLY_REFUNDED"].includes(o.paymentStatus))
+  if (
+    finance &&
+    !o.dailyPlanId &&
+    ["PAID", "PARTIALLY_REFUNDED"].includes(o.paymentStatus)
+  )
     actions.push({
       value: "REQUEST_REFUND",
       label:

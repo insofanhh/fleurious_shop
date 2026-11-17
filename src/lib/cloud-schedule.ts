@@ -7,6 +7,7 @@ export async function enqueueCloudSchedule(now = new Date()) {
   const local = new Date(now.getTime() + 7 * 3600000);
   const clock = local.getUTCHours() * 60 + local.getUTCMinutes();
   const jobs = [
+    { id: `daily-maintenance:${minute}`, name: "daily-maintenance" },
     {
       id: `collection-reminders:${Math.floor(minute / 5) * 5}`,
       name: "collection-reminders",

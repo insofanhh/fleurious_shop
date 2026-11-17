@@ -31,6 +31,20 @@ import { useShop } from "./shop-provider";
 import type { Product } from "@/lib/types";
 import { money } from "@/lib/time";
 import { ProductReviews } from "./product-reviews";
+import dynamic from "next/dynamic";
+import PageLoading from "./page-loading";
+const DailyPage = dynamic(
+  () => import("./daily-client").then((m) => m.DailyPage),
+  { loading: () => <PageLoading /> },
+);
+const AccountDaily = dynamic(
+  () => import("./daily-client").then((m) => m.AccountDaily),
+  { loading: () => <PageLoading /> },
+);
+const DailyPlanPanel = dynamic(
+  () => import("./daily-client").then((m) => m.DailyPlanPanel),
+  { loading: () => <PageLoading /> },
+);
 import { track } from "./analytics-consent";
 import {
   AccountPage,
@@ -98,6 +112,9 @@ export function ProductCard({
 export function Storefront({ segments }: { segments: string[] }) {
   const [first, second] = segments;
   if (!first) return <Home />;
+  if (first === "daily") return <DailyPage create={second === "create"} />;
+  if (first === "account" && second === "daily")
+    return segments[2] ? <DailyPlanPanel id={segments[2]} /> : <AccountDaily />;
   if (first === "flowers" && second) return <ProductDetail slug={second} />;
   if (first === "flowers" || first === "collections" || first === "favorites")
     return (
@@ -464,10 +481,11 @@ function Catalogue({
             (!favoritesOnly || favorites.includes(p.id)) &&
             (collectionTaxonomy?.kind !== "COLLECTION" ||
               collectionTaxonomy.productIds.includes(p.id)) &&
-            (!color || p.color === color) &&
-            (category === "Tất cả" || p.category === category) &&
-            (!occasion || p.occasion === occasion) &&
-            `${p.name} ${p.subtitle} ${p.color}`
+            (!color || (p.colors ?? [p.color]).includes(color)) &&
+            (category === "Tất cả" ||
+              (p.categories ?? [p.category]).includes(category)) &&
+            (!occasion || (p.occasions ?? [p.occasion]).includes(occasion)) &&
+            `${p.name} ${p.subtitle} ${(p.colors ?? [p.color]).join(" ")}`
               .toLocaleLowerCase("vi")
               .includes(search.toLocaleLowerCase("vi")) &&
             (budget === "all" ||
@@ -565,7 +583,10 @@ function Catalogue({
       </div>
       <div className="catalogue-controls">
         <div className="category-tabs">
-          {["Tất cả", ...new Set(products.map((p) => p.category))].map((c) => (
+          {[
+            "Tất cả",
+            ...new Set(products.flatMap((p) => p.categories ?? [p.category])),
+          ].map((c) => (
             <button
               className={category === c ? "active" : ""}
               key={c}
@@ -626,7 +647,11 @@ function Catalogue({
               onChange={(e) => setOccasion(e.target.value)}
             >
               <option value="">Mọi dịp</option>
-              {[...new Set(products.map((p) => p.occasion))].map((o) => (
+              {[
+                ...new Set(
+                  products.flatMap((p) => p.occasions ?? [p.occasion]),
+                ),
+              ].map((o) => (
                 <option key={o}>{o}</option>
               ))}
             </Select>
@@ -644,9 +669,11 @@ function Catalogue({
             Màu hoa
             <Select value={color} onChange={(e) => setColor(e.target.value)}>
               <option value="">Mọi sắc màu</option>
-              {[...new Set(products.map((p) => p.color))].map((c) => (
-                <option key={c}>{c}</option>
-              ))}
+              {[...new Set(products.flatMap((p) => p.colors ?? [p.color]))].map(
+                (c) => (
+                  <option key={c}>{c}</option>
+                ),
+              )}
             </Select>
           </label>
           <button
@@ -745,7 +772,8 @@ function ProductDetail({ slug }: { slug: string }) {
         </div>
         <div className="detail-copy">
           <span className="eyebrow">
-            {p.category.toUpperCase()} · {p.occasion.toUpperCase()}
+            {(p.categories ?? [p.category]).join(" · ").toUpperCase()} ·{" "}
+            {(p.occasions ?? [p.occasion]).join(" · ").toUpperCase()}
           </span>
           <h1>{p.name}</h1>
           <p className="detail-subtitle">{p.subtitle}</p>

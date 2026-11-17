@@ -221,6 +221,9 @@ export async function saveSepaySettings(
         })) +
         (await tx.membershipInvoice.count({
           where: { status: "PENDING", expiresAt: { gt: now } },
+        })) +
+        (await tx.dailyInvoice.count({
+          where: { state: "PENDING", expiresAt: { gt: now } },
         }));
       if (pending)
         fail(

@@ -54,11 +54,24 @@ export function checkOrigin(request: Request) {
 }
 export async function rateLimit(key: string, limit = 20, windowSeconds = 60) {
   const id = hash(`${key}:${Math.floor(Date.now() / (windowSeconds * 1000))}`);
-  const row = await db.rateLimit.upsert({
-    where: { id },
-    create: { id, expiresAt: new Date(Date.now() + windowSeconds * 1000) },
-    update: { count: { increment: 1 } },
-  });
+  const row = await db.rateLimit
+    .upsert({
+      where: { id },
+      create: { id, expiresAt: new Date(Date.now() + windowSeconds * 1000) },
+      update: { count: { increment: 1 } },
+    })
+    .catch((error: unknown) => {
+      // Concurrent first requests can race Prisma's emulated MySQL upsert.
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2002"
+      )
+        return db.rateLimit.update({
+          where: { id },
+          data: { count: { increment: 1 } },
+        });
+      throw error;
+    });
   if (row.count > limit)
     fail("RATE_LIMIT", "Bạn thao tác quá nhanh. Vui lòng thử lại sau.", 429);
 }

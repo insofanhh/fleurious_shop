@@ -5,15 +5,19 @@ export function isOrderExpired(
     expiresAt: string | Date;
     expiredAt?: string | Date | null;
     manualPayment?: boolean;
+    paymentDueAt?: string | Date | null;
+    paymentMethod?: string;
+    fulfillment?: string;
   },
   now = Date.now(),
 ) {
   return (
-    !order.manualPayment &&
     ["UNPAID", "PENDING"].includes(order.paymentStatus) &&
     (!!order.expiredAt ||
       (order.status === "PENDING" &&
-        new Date(order.expiresAt).getTime() <= now))
+        (!order.fulfillment || order.fulfillment === "UNASSIGNED") &&
+        (!order.manualPayment || order.paymentMethod === "SEPAY") &&
+        isPaymentOverdue(order, now)))
   );
 }
 export function paymentDeadline(order: {

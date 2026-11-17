@@ -53,6 +53,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
               Tất cả hoa
             </Link>
             <Link href="/collections/sinh-nhat">Theo dịp tặng</Link>
+            <Link href="/daily" className={isActive("/daily") ? "active" : ""}>
+              Hoa mỗi ngày
+            </Link>
             <Link
               href="/membership"
               className={isActive("/membership") ? "active" : ""}
@@ -119,6 +122,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             {[
               ["/flowers", "Tất cả hoa"],
               ["/membership", "Hội viên Fleurious"],
+              ["/daily", "Hoa mỗi ngày"],
               ["/streak", "Những ngày có hoa"],
               ["/about", "Chuyện của hoa"],
               ["/track-order", "Theo dõi đơn hàng"],
@@ -187,6 +191,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           <h3>Khám phá</h3>
           <Link href="/flowers">Tất cả hoa</Link>
           <Link href="/membership">Hội viên</Link>
+          <Link href="/daily">Hoa mỗi ngày</Link>
           <Link href="/streak">Giữ chuỗi</Link>
           <Link href="/track-order">Theo dõi đơn hàng</Link>
         </div>

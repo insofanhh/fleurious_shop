@@ -7,12 +7,14 @@ import { fail } from "./errors";
 import sharp from "sharp";
 import { z } from "zod";
 import { atomic } from "./transaction";
+import { expireReservations } from "./commerce";
 
 export async function getOrderPaymentQr(
   actor: { id: string; role: string },
   id: string,
 ) {
   requireOrderCreator(actor);
+  await expireReservations(id);
   const order = await db.order.findUniqueOrThrow({ where: { id } });
   const config = await getSepayConfig();
   const available =
@@ -23,12 +25,14 @@ export async function getOrderPaymentQr(
   return {
     id: order.id,
     code: order.code,
+    paymentCode: order.paymentCode ?? order.code,
     amount: order.total,
     paymentStatus: order.paymentStatus,
     version: order.version,
     url:
       available && !overdue
-        ? (sepayQrUrl(config, order.total, order.code) ?? null)
+        ? (sepayQrUrl(config, order.total, order.paymentCode ?? order.code) ??
+          null)
         : null,
     bank: config.bank,
     accountNumber: config.accountNumber,
@@ -53,6 +57,7 @@ export async function setOrderPaymentTerms(
       reason: z.string().trim().min(4).max(300),
     })
     .parse(raw);
+  await expireReservations(id);
   return atomic(async (tx) => {
     await tx.$queryRaw`SELECT id FROM \`Order\` WHERE id=${id} FOR UPDATE`;
     const order = await tx.order.findUniqueOrThrow({ where: { id } });

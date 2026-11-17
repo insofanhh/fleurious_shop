@@ -50,6 +50,8 @@ export function useShippingQuote(
     };
   }, [enabled, refresh]);
   return {
+    // Consumers can revalidate dependent totals even when the server reuses a token.
+    revision,
     quote: current?.quote ?? null,
     error: current?.error ?? "",
     checking: !!(enabled && locationId && !current),

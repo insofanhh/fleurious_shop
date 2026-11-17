@@ -19,6 +19,7 @@ export function CreatableTaxonomy({
   label,
   disabled,
   onBusyChange,
+  required = true,
 }: {
   kind: TaxonomyKind;
   value: string;
@@ -28,6 +29,7 @@ export function CreatableTaxonomy({
   label?: string;
   disabled?: boolean;
   onBusyChange?: (busy: boolean) => void;
+  required?: boolean;
 }) {
   const id = useId(),
     title = taxonomyLabels[kind];
@@ -72,7 +74,7 @@ export function CreatableTaxonomy({
       <Select
         id={id}
         value={value}
-        required
+        required={required}
         disabled={disabled || busy}
         onChange={(e) => onChange(e.target.value)}
       >

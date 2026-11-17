@@ -9,6 +9,8 @@ export function customerOrder<
     receivable?: unknown;
     shippingQuoteId?: unknown;
     shippingSnapshot?: unknown;
+    checkoutAttempt?: unknown;
+    paymentAttempts?: unknown;
   },
 >(order: T) {
   const {
@@ -20,6 +22,8 @@ export function customerOrder<
     receivable,
     shippingQuoteId,
     shippingSnapshot,
+    checkoutAttempt,
+    paymentAttempts,
     ...safe
   } = order;
   if (

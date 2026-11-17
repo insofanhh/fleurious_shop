@@ -3,7 +3,13 @@ import { db } from "./db";
 import { atomic, type Tx } from "./transaction";
 import { can } from "./auth-policy";
 import { fail } from "./errors";
-import { catalogueSlug, type TaxonomyKind } from "./catalogue";
+import {
+  catalogueSlug,
+  productClassifications,
+  isDailyCategory,
+  type TaxonomyKind,
+} from "./catalogue";
+import { lockDaily } from "./daily";
 
 type Actor = { id: string; role: string };
 function requireCatalog(actor: Actor) {
@@ -34,9 +40,24 @@ export const productSchema = z
       ),
     subtitle: z.string().max(200),
     description: z.string().max(5000),
-    category: z.string().trim().min(1).max(100),
-    occasion: z.string().trim().min(1).max(100),
-    color: z.string().trim().min(1).max(100),
+    category: z.string().trim().min(1).max(100).optional(),
+    occasion: z.string().trim().min(1).max(100).optional(),
+    color: z.string().trim().min(1).max(100).optional(),
+    categories: z
+      .array(z.string().trim().min(1).max(100))
+      .min(1)
+      .max(20)
+      .optional(),
+    occasions: z
+      .array(z.string().trim().min(1).max(100))
+      .min(1)
+      .max(20)
+      .optional(),
+    colors: z
+      .array(z.string().trim().min(1).max(100))
+      .min(1)
+      .max(20)
+      .optional(),
     image: imageSchema.refine(Boolean, "Cần chọn ảnh sản phẩm."),
     badge: z.string().max(30).default(""),
     active: z.boolean(),
@@ -55,6 +76,17 @@ export const productSchema = z
       .max(10),
   })
   .superRefine((value, ctx) => {
+    for (const [one, many] of [
+      ["category", "categories"],
+      ["occasion", "occasions"],
+      ["color", "colors"],
+    ] as const)
+      if (!value[one] && !value[many]?.length)
+        ctx.addIssue({
+          code: "custom",
+          message: "Chọn ít nhất một mục.",
+          path: [many],
+        });
     for (const field of ["name", "sku"] as const)
       if (
         new Set(value.variants.map((v) => v[field].toLocaleLowerCase("vi")))
@@ -68,6 +100,20 @@ export const productSchema = z
               : "SKU của các size phải khác nhau.",
           path: ["variants"],
         });
+  })
+  .transform((v) => {
+    const categories = [...new Set(v.categories ?? [v.category!])];
+    const occasions = [...new Set(v.occasions ?? [v.occasion!])];
+    const colors = [...new Set(v.colors ?? [v.color!])];
+    return {
+      ...v,
+      categories,
+      occasions,
+      colors,
+      category: categories[0],
+      occasion: occasions[0],
+      color: colors[0],
+    };
   });
 export const taxonomySchema = z.object({
   kind: z.enum(["CATEGORY", "SIZE", "OCCASION", "COLOR", "COLLECTION"]),
@@ -98,12 +144,31 @@ async function ensureNamed(
         "INACTIVE_TAXONOMY",
         `${name} đang ẩn. Hãy bật lại trong Danh mục & size.`,
       );
-    return;
+    return existing;
   }
   const slug = `${kind.toLowerCase()}-${catalogueSlug(name) || "moi"}`;
-  await tx.taxonomy.create({
+  return tx.taxonomy.create({
     data: { kind, name, slug, description: "", productIds: [] },
   });
+}
+export async function listCatalogProducts(actor: Actor) {
+  requireCatalog(actor);
+  const [products, offerings] = await Promise.all([
+    db.product.findMany({
+      include: { variants: true, taxonomies: { include: { taxonomy: true } } },
+      orderBy: { sortOrder: "asc" },
+    }),
+    db.dailyOffering.findMany({ select: { variantId: true, active: true } }),
+  ]);
+  const configured = new Set(offerings.map((o) => o.variantId));
+  const active = new Set(
+    offerings.filter((o) => o.active).map((o) => o.variantId),
+  );
+  return products.map((p) => ({
+    ...productClassifications(p),
+    daily: p.variants.some((v) => active.has(v.id)),
+    dailyConfigured: p.variants.some((v) => configured.has(v.id)),
+  }));
 }
 export async function saveCatalogProduct(
   actor: Actor,
@@ -113,12 +178,34 @@ export async function saveCatalogProduct(
   requireCatalog(actor);
   const input = productSchema.parse(value);
   return atomic(async (tx) => {
+    // Match the lock order used when Daily configuration and offerings change.
+    await lockDaily(tx);
     const old = id
       ? await tx.product.findUniqueOrThrow({
           where: { id },
-          include: { variants: true },
+          include: {
+            variants: true,
+            taxonomies: { include: { taxonomy: true } },
+          },
         })
       : null;
+    const daily = input.categories.some(isDailyCategory);
+    const oldClasses = old ? productClassifications(old) : null;
+    const wasDaily = oldClasses?.categories.some(isDailyCategory) ?? false;
+    const existingDaily = old
+      ? await tx.dailyOffering.findMany({
+          where: { variantId: { in: old.variants.map((v) => v.id) } },
+        })
+      : [];
+    if (
+      daily &&
+      !existingDaily.length &&
+      !input.variants.some((v) => v.name === "Vừa xinh")
+    )
+      fail(
+        "DAILY_SIZE_REQUIRED",
+        "Hoa mỗi ngày cần size Vừa xinh. Hãy thêm size này, nhập giá và tồn kho trước khi lưu.",
+      );
     const duplicate = await tx.product.findUnique({
       where: { slug: input.slug },
     });
@@ -128,12 +215,21 @@ export async function saveCatalogProduct(
         "Slug đã được sản phẩm khác sử dụng. Hãy chỉnh lại slug.",
         409,
       );
+    const assigned: string[] = [];
     for (const [kind, field] of [
-      ["CATEGORY", "category"],
-      ["OCCASION", "occasion"],
-      ["COLOR", "color"],
+      ["CATEGORY", "categories"],
+      ["OCCASION", "occasions"],
+      ["COLOR", "colors"],
     ] as const)
-      await ensureNamed(tx, kind, input[field], old?.[field] === input[field]);
+      for (const name of input[field]) {
+        const item = await ensureNamed(
+          tx,
+          kind,
+          name,
+          oldClasses?.[field].includes(name),
+        );
+        assigned.push(item.id);
+      }
     for (const variant of input.variants) {
       if (variant.id)
         await tx.$queryRaw`SELECT id FROM ProductVariant WHERE id = ${variant.id} FOR UPDATE`;
@@ -152,7 +248,7 @@ export async function saveCatalogProduct(
         );
       await ensureNamed(tx, "SIZE", variant.name, prior?.name === variant.name);
     }
-    const { variants, ...data } = input;
+    const { variants, categories, occasions, colors, ...data } = input;
     const images = [
       data.image,
       ...(Array.isArray(old?.images)
@@ -167,6 +263,14 @@ export async function saveCatalogProduct(
           data: { ...data, images },
         })
       : await tx.product.create({ data: { ...data, images } });
+    await tx.productTaxonomy.deleteMany({ where: { productId: product.id } });
+    await tx.productTaxonomy.createMany({
+      data: assigned.map((taxonomyId) => ({
+        productId: product.id,
+        taxonomyId,
+      })),
+      skipDuplicates: true,
+    });
     for (const variant of variants) {
       const { id: variantId, ...details } = variant;
       if (variantId)
@@ -178,6 +282,57 @@ export async function saveCatalogProduct(
         await tx.productVariant.create({
           data: { ...details, productId: product.id },
         });
+    }
+    const savedVariants = await tx.productVariant.findMany({
+      where: { productId: product.id },
+      select: { id: true, name: true },
+    });
+    // Existing Daily offerings always follow the product's current name.
+    await tx.dailyOffering.updateMany({
+      where: { variantId: { in: savedVariants.map((v) => v.id) } },
+      data: { name: product.name },
+    });
+    if (!daily || (daily && !wasDaily && existingDaily.length > 0)) {
+      await tx.dailyOffering.updateMany({
+        where: { id: { in: existingDaily.map((o) => o.id) } },
+        data: { active: daily },
+      });
+      if (existingDaily.length)
+        await tx.audit.create({
+          data: {
+            actorId: actor.id,
+            action: "daily.product_visibility",
+            entityId: product.id,
+            detail: { active: daily },
+          },
+        });
+    }
+    if (daily && !existingDaily.length) {
+      const variant = savedVariants.find((v) => v.name === "Vừa xinh")!;
+      const offering = await tx.dailyOffering.create({
+        data: {
+          variantId: variant.id,
+          budgetCode: "catalog",
+          name: product.name,
+          description: product.subtitle,
+          tags: [],
+          premium: 0,
+          cost: 0,
+          capacity: 10,
+          active: true,
+        },
+      });
+      await tx.audit.create({
+        data: {
+          actorId: actor.id,
+          action: "daily.offering_saved",
+          entityId: offering.id,
+          detail: {
+            active: true,
+            source: old ? "product.update" : "product.create",
+          },
+        },
+      });
     }
     await tx.audit.create({
       data: {

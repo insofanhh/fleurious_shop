@@ -149,6 +149,8 @@ Khi scale nhiều gateway, đặt `SOCKET_REDIS=true` và cùng `REDIS_URL` đ�
 
 ## Kiểm thử
 
+Fleurious Daily (hoa theo lịch ngày/tháng): xem [thiết lập và vận hành](docs/FLEURIOUS_DAILY_OPERATIONS.vi.md). Menu quản lý tại `/admin/daily`; sản phẩm tham gia qua danh mục Hoa mỗi ngày, giá lịch bằng tổng giá từng bó/size trừ ưu đãi theo số lượt. Sản phẩm hỗ trợ nhiều danh mục/dịp tặng/màu hoa. Khi cập nhật Prisma, khởi động lại dev server sau `npm run db:generate` và `npm run db:migrate`. Production dùng migration trong quy trình deploy hiện có.
+
 ```powershell
 npm test
 npm run typecheck

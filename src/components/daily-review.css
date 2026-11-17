@@ -1,0 +1,287 @@
+.daily-check-list {
+  display: grid;
+  gap: 16px;
+  max-height: 640px;
+  overflow: auto;
+  padding-right: 6px;
+  overscroll-behavior: contain;
+}
+.daily-review-intro {
+  margin: -8px 0 22px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #796660;
+}
+.daily-review-recipient {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  margin: 0;
+  padding: 18px;
+  border: 1px solid var(--daily-border);
+  border-radius: 14px;
+  background: rgba(110, 20, 35, 0.025);
+}
+.daily-review-recipient dt,
+.daily-review-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #796660;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.daily-review-recipient dd {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 7px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.daily-review-recipient dd > span {
+  color: #796660;
+  font-size: 12px;
+}
+.daily-review-address {
+  grid-column: 1/-1;
+}
+.daily-review-list-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 26px 0 16px;
+}
+.daily-review-list-heading h3 {
+  margin: 0 0 5px;
+  font-family: inherit;
+  font-size: 16px;
+}
+.daily-review-list-heading > div > span {
+  font-size: 11px;
+  color: #796660;
+}
+.daily-review-mode,
+.daily-review-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 6px 9px;
+  border-radius: 20px;
+  background: rgba(110, 20, 35, 0.05);
+  color: #6e1423;
+  font-size: 10px;
+  line-height: 1.5;
+}
+.daily-review-status.chosen {
+  color: #44654b;
+  background: rgba(68, 101, 75, 0.08);
+}
+.daily-review-card {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid var(--daily-border);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.44);
+}
+.daily-review-card-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid var(--daily-border);
+}
+.daily-review-date {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+.daily-review-number {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 42px;
+  border-radius: 10px;
+  background: rgba(110, 20, 35, 0.05);
+  color: #6e1423;
+  font-size: 13px;
+}
+.daily-review-date > div {
+  display: grid;
+  gap: 6px;
+}
+.daily-review-date strong {
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.daily-review-date > div > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #796660;
+  font-size: 11px;
+}
+.daily-review-card-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  gap: 18px;
+  align-items: start;
+  margin: 18px 0;
+}
+.daily-review-flower {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.daily-review-flower img {
+  width: 68px;
+  height: 84px;
+  object-fit: cover;
+  border-radius: 9px;
+  flex-shrink: 0;
+}
+.daily-review-flower h4 {
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.5;
+  margin: 5px 0;
+  overflow-wrap: anywhere;
+}
+.daily-review-flower > div > span:last-child {
+  font-size: 12px;
+  color: #796660;
+}
+.daily-review-message {
+  padding: 12px 14px;
+  border-left: 2px solid rgba(110, 20, 35, 0.2);
+  background: rgba(110, 20, 35, 0.025);
+  border-radius: 0 8px 8px 0;
+}
+.daily-review-message p {
+  margin: 7px 0 0;
+  font-size: 13px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.daily-review-card-footer {
+  display: flex;
+  gap: 7px;
+  align-items: flex-start;
+  margin-top: 14px;
+  font-size: 10px;
+  line-height: 1.7;
+  color: #796660;
+}
+.daily-review-card-footer svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.daily-review-card-footer strong {
+  font-weight: 500;
+}
+@media (max-width: 850px) {
+  .daily-review-card-body {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 700px) {
+  .daily-review-recipient {
+    grid-template-columns: 1fr;
+    gap: 15px;
+    padding: 15px;
+  }
+  .daily-review-card {
+    padding: 14px;
+  }
+  .daily-check-list {
+    max-height: 560px;
+    padding-right: 4px;
+  }
+}
+
+.daily-quote-status {
+  min-height: 20px;
+  margin: 10px 0;
+  color: #796660;
+  font-size: 11px;
+  line-height: 1.7;
+}
+.daily-message-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.daily-message-heading > .daily-review-label {
+  min-width: 0;
+  padding-top: 5px;
+}
+.daily-message-actions {
+  display: flex;
+  gap: 3px;
+  flex-shrink: 0;
+}
+.daily-message-action {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  color: #6e1423;
+  background: transparent;
+  cursor: pointer;
+}
+.daily-message-action:hover,
+.daily-message-action.save {
+  background: rgba(110, 20, 35, 0.07);
+}
+.daily-message-action:focus-visible {
+  outline: 2px solid rgba(110, 20, 35, 0.4);
+  outline-offset: 2px;
+}
+.daily-message-action:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.daily-review-message.editing {
+  min-width: 0;
+}
+.daily-review-message textarea {
+  display: block;
+  width: 100%;
+  min-height: 105px;
+  margin: 8px 0;
+  padding: 10px;
+  resize: vertical;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.daily-message-editor-hint {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: #796660;
+  font-size: 10px;
+  line-height: 1.6;
+}
+.daily-message-editor-hint > span:last-child {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 700px) {
+  .daily-review-message textarea {
+    font-size: 16px;
+  }
+}

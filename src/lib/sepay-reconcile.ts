@@ -115,7 +115,7 @@ export async function reconcileSepay(
           t.account_number !== config.accountNumber ||
           t.transfer_type !== "in" ||
           !t.amount_in ||
-          !/\bFL[RM][A-F0-9]{12}\b/.test(
+          !/\bFL[RMD][A-F0-9]{12}\b/.test(
             `${t.code ?? ""} ${t.transaction_content}`.toUpperCase(),
           )
         )

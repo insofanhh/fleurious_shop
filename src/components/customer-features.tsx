@@ -655,6 +655,7 @@ export function AccountPage({ section }: { section?: string }) {
         {[
           ["/account", "Tổng quan"],
           ["/account/orders", "Đơn hoa"],
+          ["/account/daily", "Lịch hoa Daily"],
           ["/account/membership", "Hội viên"],
           ["/account/rewards", "Ví ưu đãi"],
           ["/account/profile", "Hồ sơ"],
@@ -976,6 +977,7 @@ export function CheckoutPage() {
   const router = useRouter();
   const reorderId = useSearchParams().get("reorder");
   type ReorderResult = {
+    restartOrderId?: string;
     items: { variantId: string; quantity: number }[];
     notices: string[];
     code: string;
@@ -1011,6 +1013,7 @@ export function CheckoutPage() {
   const [reorderError, setReorderError] = useState("");
   const [cardWritingMode, setCardWritingMode] =
     useState<CardWritingMode>("AUTO");
+  const preparedReorder = useRef<string | null>(null);
   useEffect(() => {
     if (cart.length) track("begin_checkout", { items: cart });
   }, [cart]);
@@ -1022,7 +1025,7 @@ export function CheckoutPage() {
     [slotId, setSlotId] = useState(slots[0]?.id ?? ""),
     [voucher, setVoucher] = useState("");
   useEffect(() => {
-    if (!reorderId || !ready) return;
+    if (!reorderId || !ready || preparedReorder.current === reorderId) return;
     let active = true;
     setReorderLoading(true);
     request<ReorderResult>(
@@ -1030,7 +1033,8 @@ export function CheckoutPage() {
       {},
     )
       .then((result) => {
-        if (!active) return;
+        if (!active || preparedReorder.current === reorderId) return;
+        preparedReorder.current = reorderId;
         mergeCart(result.items);
         setReorder(result);
         setDeliveryAddress(result.draft.address);
@@ -1038,11 +1042,13 @@ export function CheckoutPage() {
         setAddressDetails(result.draft.addressDetails ?? "");
         setCardWritingMode(result.draft.cardWritingMode ?? "AUTO");
         setReorderError("");
+        setReorderLoading(false);
         // The prepared draft lives only in this checkout; reloads must not append the same order again.
         router.replace("/checkout", { scroll: false });
       })
       .catch((e) => {
-        if (active) setReorderError((e as Error).message);
+        if (active && preparedReorder.current !== reorderId)
+          setReorderError((e as Error).message);
       })
       .finally(() => {
         if (active) setReorderLoading(false);
@@ -1126,6 +1132,7 @@ export function CheckoutPage() {
         : undefined,
       voucherCode: discountChoice === "voucher" ? voucher.trim() : undefined,
       idempotencyKey,
+      restartOrderId: reorder?.restartOrderId,
       expectedTotal: quoted?.total,
       cardWritingMode,
     };
@@ -1198,8 +1205,9 @@ export function CheckoutPage() {
             <div className="notice">
               <strong>Đặt lại từ đơn {reorder.code}</strong>
               <p>
-                Hoa đã được thêm vào giỏ hiện tại. Vui lòng chọn lại lịch giao
-                và ưu đãi. Tổng tiền sẽ được tính lại tự động.
+                {reorder.restartOrderId
+                  ? "Xác nhận đặt lại sẽ khôi phục đơn này về Chờ xác nhận. Vui lòng chọn lại lịch giao và ưu đãi; tổng tiền được tính lại tự động."
+                  : "Hoa đã được thêm vào giỏ hiện tại. Vui lòng chọn lại lịch giao và ưu đãi. Tổng tiền sẽ được tính lại tự động."}
               </p>
               {reorder.notices.map((n) => (
                 <p key={n}>{n}</p>
@@ -1619,7 +1627,9 @@ export function OrderPage({ id }: { id?: string }) {
   if (!order) return <div className="page-loading">Đang mở đơn hoa…</div>;
   const expired = isOrderExpired(
     order,
-    seconds === 0 ? Date.parse(order.expiresAt) : Number.NEGATIVE_INFINITY,
+    seconds === 0
+      ? Date.parse(paymentDeadlineIso(order) ?? order.expiresAt)
+      : Number.NEGATIVE_INFINITY,
   );
   return (
     <section className="container section order-detail-page">
@@ -1657,14 +1667,18 @@ export function OrderPage({ id }: { id?: string }) {
               </strong>
               <p>
                 {orderStatus[order.paymentStatus]} ·{" "}
-                {order.paymentMethod === "SEPAY" ? "SePay" : "COD"}
+                {order.paymentMethod === "PREPAID_PLAN"
+                  ? "Đã trả trong gói Daily"
+                  : order.paymentMethod === "SEPAY"
+                    ? "SePay"
+                    : "COD"}
               </p>
             </div>
           </div>
           {expired && (
             <div className="order-expired-notice">
               <div>
-                <strong>Đơn đã hết thời gian giữ hoa.</strong>
+                <strong>Đơn đã hủy do hết hạn thanh toán.</strong>
                 <p>
                   Đặt lại để kiểm tra giá, tồn kho và chọn lịch giao mới. Vui
                   lòng không chuyển tiền theo QR cũ.
@@ -1701,7 +1715,7 @@ export function OrderPage({ id }: { id?: string }) {
             <PaymentQr
               url={order.paymentQr}
               amount={order.total}
-              code={order.code}
+              code={order.paymentCode ?? order.code}
               bank={order.bank}
               accountNumber={order.accountNumber}
               accountName={order.accountName}

@@ -18,6 +18,7 @@ import "@/components/brand.css";
 import "@/components/membership.css";
 import "@/components/membership-admin.css";
 import { db } from "@/lib/db";
+import { productClassifications } from "@/lib/catalogue";
 import { getSettings } from "@/lib/settings";
 import { ShopProvider } from "@/components/shop-provider";
 import { NotificationProvider } from "@/components/notification-center";
@@ -28,6 +29,10 @@ import "@/components/order-card.css";
 import "@/components/admin-order-details.css";
 import "@/components/card-assets.css";
 import "@/components/auth-enhancements.css";
+import "@/components/daily.css";
+import "@/components/daily-review.css";
+import "@/components/daily-plan-summary.css";
+import "@/components/daily-flower-picker.css";
 import "@/components/ui/date-input.css";
 import "@/components/catalog-admin.css";
 import "@/components/order-tracking.css";
@@ -73,7 +78,10 @@ export default async function RootLayout({
     await Promise.all([
       db.product.findMany({
         where: { active: true },
-        include: { variants: true },
+        include: {
+          variants: true,
+          taxonomies: { include: { taxonomy: true } },
+        },
         orderBy: { sortOrder: "asc" },
       }),
       db.deliveryZone.findMany({ where: { active: true } }),
@@ -94,7 +102,7 @@ export default async function RootLayout({
   const initial = JSON.parse(
     JSON.stringify({
       shipping: await shippingPublic(),
-      products,
+      products: products.map(productClassifications),
       zones,
       slots,
       content,

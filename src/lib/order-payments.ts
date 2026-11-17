@@ -9,6 +9,7 @@ import { recordMembershipRefund, recordMembershipSpend } from "./membership";
 import { receiptSchema, recordCodReceiptTx } from "./collections";
 import { unlockQr } from "./commerce";
 import { getSettings } from "./settings";
+import { isOrderExpired } from "./order-expiry";
 
 function financialActor(actor: Pick<User, "role">) {
   if (!["OWNER", "MANAGER", "ACCOUNTANT"].includes(actor.role))
@@ -75,11 +76,7 @@ export async function confirmOrderPaymentTx(
       "INVALID_PAYMENT_STATE",
       "Không thể xác nhận tiền cho đơn đã dừng hoặc hoàn tiền.",
     );
-  if (
-    !order.manualPayment &&
-    order.status === "PENDING" &&
-    order.expiresAt <= new Date()
-  )
+  if (isOrderExpired(order))
     fail(
       "ORDER_EXPIRED",
       "Đơn đã hết hạn giữ hàng. Không thể xác nhận tiền; cần đối soát hoặc tạo đơn mới.",
@@ -170,6 +167,11 @@ export async function stopAndRefundOrder(
   return atomic(async (tx) => {
     await tx.$queryRaw`SELECT id FROM \`Order\` WHERE id=${id} FOR UPDATE`;
     const order = await tx.order.findUniqueOrThrow({ where: { id } });
+    if (order.dailyPlanId)
+      fail(
+        "DAILY_FUNDING",
+        "Mở gói Fleurious Daily để hoàn đúng nguồn tiền đã phân bổ.",
+      );
     if (order.status === "REFUND_PENDING") return order;
     if (order.version !== input.version)
       fail("STALE_ORDER_VERSION", "Đơn đã thay đổi. Vui lòng tải lại.", 409);
@@ -220,6 +222,11 @@ export async function requestOrderRefund(
   return atomic(async (tx) => {
     await tx.$queryRaw`SELECT id FROM \`Order\` WHERE id=${id} FOR UPDATE`;
     const order = await tx.order.findUniqueOrThrow({ where: { id } });
+    if (order.dailyPlanId)
+      fail(
+        "DAILY_FUNDING",
+        "Hoàn tiền lượt này tại gói Fleurious Daily để tránh hoàn trùng.",
+      );
     if (order.version !== input.version)
       fail("STALE_ORDER_VERSION", "Đơn đã thay đổi. Vui lòng tải lại.", 409);
     if (
@@ -309,6 +316,8 @@ export async function completeOrderRefund(
     const order = await tx.order.findUniqueOrThrow({
       where: { id: refund.orderId },
     });
+    if (order.dailyPlanId)
+      fail("DAILY_FUNDING", "Xác nhận hoàn tại gói Fleurious Daily.");
     if (!["PAID", "PARTIALLY_REFUNDED"].includes(order.paymentStatus))
       fail("NOT_PAID", "Không thể ghi nhận hoàn cho đơn chưa nhận tiền.");
     const sum = await tx.refund.aggregate({

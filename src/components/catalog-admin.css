@@ -231,3 +231,20 @@
     padding: 14px;
   }
 }
+.catalog-taxonomy-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 8px 0;
+}
+.catalog-taxonomy-values button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(110, 20, 35, 0.16);
+  border-radius: 20px;
+  padding: 6px 10px;
+  color: #6e1423;
+  background: rgba(110, 20, 35, 0.04);
+  font-size: 12px;
+}

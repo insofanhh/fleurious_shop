@@ -4,9 +4,11 @@ import { Check, Plus, RefreshCw, X } from "lucide-react";
 import { request, useShop } from "./shop-provider";
 import { ImageUpload } from "./ui/image-upload";
 import { CreatableTaxonomy } from "./ui/creatable-taxonomy";
+import { MultiTaxonomy } from "./ui/multi-taxonomy";
 import { useAutoSlug } from "./ui/use-auto-slug";
 import {
   taxonomyOptions,
+  isDailyCategory,
   type CatalogueTaxonomy,
   type TaxonomyKind,
 } from "@/lib/catalogue";
@@ -27,7 +29,7 @@ export function ProductEditor({
   onSave,
   busy,
 }: {
-  initial: Partial<Product>;
+  initial: Partial<Product> & { daily?: boolean; dailyConfigured?: boolean };
   onSave: (data: Record<string, unknown>) => Promise<void>;
   busy: boolean;
 }) {
@@ -40,19 +42,28 @@ export function ProductEditor({
   const slug = useAutoSlug(initial.name, initial.slug, !!initial.id);
   const [image, setImage] = useState(initial.image ?? ""),
     [uploading, setUploading] = useState(false);
-  const [category, setCategory] = useState(
-    initial.category ??
-      taxonomies.find((t) => t.kind === "CATEGORY")?.name ??
-      "",
+  const [categories, setCategories] = useState(
+    initial.categories ??
+      [
+        initial.category ??
+          taxonomies.find((t) => t.kind === "CATEGORY")?.name ??
+          "",
+      ].filter(Boolean),
   );
-  const [occasion, setOccasion] = useState(
-    initial.occasion ??
-      taxonomies.find((t) => t.kind === "OCCASION")?.name ??
-      "Sinh nhật",
+  const [occasions, setOccasions] = useState(
+    initial.occasions ?? [
+      initial.occasion ??
+        taxonomies.find((t) => t.kind === "OCCASION")?.name ??
+        "Sinh nhật",
+    ],
   );
-  const [color, setColor] = useState(
-    initial.color ?? taxonomies.find((t) => t.kind === "COLOR")?.name ?? "Đỏ",
+  const [colors, setColors] = useState(
+    initial.colors ?? [
+      initial.color ?? taxonomies.find((t) => t.kind === "COLOR")?.name ?? "Đỏ",
+    ],
   );
+  const daily = categories.some(isDailyCategory);
+  const needsDailySize = daily && !initial.dailyConfigured;
   const [variants, setVariants] = useState<VariantDraft[]>(() =>
     (
       initial.variants ?? [
@@ -87,15 +98,12 @@ export function ProductEditor({
       kind,
       kind === "SIZE"
         ? products.flatMap((p) => p.variants.map((v) => v.name))
-        : products.map(
-            (p) =>
-              p[
-                kind === "CATEGORY"
-                  ? "category"
-                  : kind === "OCCASION"
-                    ? "occasion"
-                    : "color"
-              ],
+        : products.flatMap((p) =>
+            kind === "CATEGORY"
+              ? (p.categories ?? [p.category])
+              : kind === "OCCASION"
+                ? (p.occasions ?? [p.occasion])
+                : (p.colors ?? [p.color]),
           ),
       current,
     );
@@ -123,9 +131,9 @@ export function ProductEditor({
           subtitle: form.get("subtitle"),
           description: form.get("description"),
           image,
-          category,
-          occasion,
-          color,
+          categories,
+          occasions,
+          colors,
           badge: form.get("badge"),
           active: form.has("active"),
           featured: form.has("featured"),
@@ -198,29 +206,47 @@ export function ProductEditor({
             onBusyChange={setUploading}
           />
         </div>
-        <CreatableTaxonomy
+        <MultiTaxonomy
           kind="CATEGORY"
-          value={category}
-          onChange={setCategory}
-          options={options("CATEGORY", category)}
+          values={categories}
+          onChange={(values) => {
+            setCategories(values);
+            if (
+              values.some(isDailyCategory) &&
+              !initial.dailyConfigured &&
+              !variants.some((v) => v.name === "Vừa xinh") &&
+              variants.length < 10
+            )
+              setVariants((items) => [
+                ...items,
+                {
+                  clientKey: crypto.randomUUID(),
+                  name: "Vừa xinh",
+                  sku: newSku(),
+                  price: "",
+                  stock: "",
+                },
+              ]);
+          }}
+          options={[...new Set([...options("CATEGORY"), ...categories])]}
           onCreated={created}
           onBusyChange={creatingChanged}
           disabled={busy}
         />
-        <CreatableTaxonomy
+        <MultiTaxonomy
           kind="OCCASION"
-          value={occasion}
-          onChange={setOccasion}
-          options={options("OCCASION", occasion)}
+          values={occasions}
+          onChange={setOccasions}
+          options={[...new Set([...options("OCCASION"), ...occasions])]}
           onCreated={created}
           onBusyChange={creatingChanged}
           disabled={busy}
         />
-        <CreatableTaxonomy
+        <MultiTaxonomy
           kind="COLOR"
-          value={color}
-          onChange={setColor}
-          options={options("COLOR", color)}
+          values={colors}
+          onChange={setColors}
+          options={[...new Set([...options("COLOR"), ...colors])]}
           onCreated={created}
           onBusyChange={creatingChanged}
           disabled={busy}
@@ -253,6 +279,19 @@ export function ProductEditor({
           Hiển thị trên cửa hàng
         </label>
       </div>
+      {needsDailySize && (
+        <p className="small muted">
+          Danh mục Hoa mỗi ngày tự thêm sản phẩm vào Bộ hoa Daily với size Vừa
+          xinh. Giá mỗi lượt Daily lấy từ giá size này ở bên dưới.
+        </p>
+      )}
+      {initial.dailyConfigured && (
+        <p className="small muted">
+          {daily
+            ? "Sản phẩm thuộc Bộ hoa Daily. Giá lấy theo size được chọn trong mẫu; lịch đã mua giữ nguyên giá."
+            : "Bỏ danh mục Hoa mỗi ngày sẽ ẩn mẫu khỏi Bộ hoa Daily; lịch đã đặt vẫn được giữ lại."}
+        </p>
+      )}
       <div className="catalog-section-heading">
         <h3>Size, giá & tồn kho</h3>
         <span>Chọn size từ danh mục dùng chung.</span>
@@ -271,7 +310,7 @@ export function ProductEditor({
               onCreated={created}
               onBusyChange={creatingChanged}
               label={`Size ${index + 1}`}
-              disabled={busy}
+              disabled={busy || (needsDailySize && variant.name === "Vừa xinh")}
             />
             <label>
               SKU
@@ -306,17 +345,19 @@ export function ProductEditor({
               />
             </label>
           </div>
-          {!variant.id && variants.length > 1 && (
-            <button
-              className="text-link"
-              type="button"
-              onClick={() =>
-                setVariants((items) => items.filter((_, i) => i !== index))
-              }
-            >
-              <X size={14} /> Bỏ size này
-            </button>
-          )}
+          {!variant.id &&
+            variants.length > 1 &&
+            !(needsDailySize && variant.name === "Vừa xinh") && (
+              <button
+                className="text-link"
+                type="button"
+                onClick={() =>
+                  setVariants((items) => items.filter((_, i) => i !== index))
+                }
+              >
+                <X size={14} /> Bỏ size này
+              </button>
+            )}
         </div>
       ))}
       <button
@@ -343,7 +384,15 @@ export function ProductEditor({
       </button>
       <button
         className="button glass-primary"
-        disabled={busy || uploading || creating > 0 || !!registryError}
+        disabled={
+          busy ||
+          uploading ||
+          creating > 0 ||
+          !!registryError ||
+          !categories.length ||
+          !occasions.length ||
+          !colors.length
+        }
       >
         {busy ? "Đang lưu…" : "Lưu sản phẩm"}
         <Check size={16} />

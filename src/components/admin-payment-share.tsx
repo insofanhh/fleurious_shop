@@ -8,6 +8,7 @@ import { CopyButton } from "./copy-button";
 import { useDeadline } from "./use-deadline";
 
 type Data = {
+  paymentCode?: string;
   code: string;
   amount: number;
   url: string | null;
@@ -96,13 +97,13 @@ export function AdminPaymentShare({ orderId }: { orderId: string }) {
       ) : data.overdue || seconds === 0 ? (
         <p className="admin-notice">
           Đã quá hạn thanh toán. Không tiếp tục gửi QR cũ. Nếu khách đã chuyển
-          tiền, kiểm tra giao dịch và xác nhận thủ công tại chi tiết đơn.
+          tiền, đối soát khoản chuyển muộn trong mục Thanh toán trước khi xử lý.
         </p>
       ) : data.url ? (
         <PaymentQr
           url={data.url}
           amount={data.amount}
-          code={data.code}
+          code={data.paymentCode ?? data.code}
           bank={data.bank}
           accountName={data.accountName}
           accountNumber={data.accountNumber}

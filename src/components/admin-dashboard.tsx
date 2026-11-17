@@ -188,6 +188,9 @@ export function AdminDashboard({
           badge: entity.badge ?? "",
           featured: entity.featured,
           active: entity.active,
+          categories: entity.categories,
+          occasions: entity.occasions,
+          colors: entity.colors,
           variants: entity.variants,
         };
       }
@@ -642,6 +645,16 @@ export function AdminDashboard({
             )}
             {section === "settings" && (
               <>
+                <section className="admin-panel">
+                  <h2>Fleurious Daily</h2>
+                  <p>
+                    Giá gói, mốc giảm, hỗ trợ ship, lời chúc và bộ hoa nhận theo
+                    ngày.
+                  </p>
+                  <Link href="/admin/daily" className="button secondary">
+                    Cấu hình Hoa mỗi ngày →
+                  </Link>
+                </section>
                 <ShippingSettings
                   onSaved={async () => {
                     await load();
@@ -879,7 +892,15 @@ export function AdminDashboard({
                       header: "Đơn",
                       id: "order",
                       cell: ({ row }) =>
-                        row.original.order?.code ?? "Chưa khớp",
+                        row.original.dailyInvoice ? (
+                          <Link
+                            href={`/admin/daily?plan=${row.original.dailyInvoice.planId}`}
+                          >
+                            {row.original.dailyInvoice.code} · Daily →
+                          </Link>
+                        ) : (
+                          (row.original.order?.code ?? "Chưa khớp")
+                        ),
                     },
                     {
                       header: "Số tiền",
@@ -890,7 +911,14 @@ export function AdminDashboard({
                       header: "Kết quả",
                       accessorKey: "state",
                       cell: ({ getValue }) =>
-                        getValue() === "MATCHED" ? "Đã khớp" : "Cần đối soát",
+                        (
+                          ({
+                            MATCHED: "Đã khớp",
+                            REVIEW: "Cần đối soát",
+                            REFUND_PENDING: "Chờ hoàn tiền",
+                            REFUNDED: "Đã hoàn tiền",
+                          }) as Record<string, string>
+                        )[String(getValue())] ?? "Cần đối soát",
                     },
                     {
                       header: "Nhận lúc",
@@ -908,7 +936,16 @@ export function AdminDashboard({
                     {
                       header: "Đơn",
                       id: "order",
-                      cell: ({ row }) => row.original.order.code,
+                      cell: ({ row }) =>
+                        row.original.order.dailyPlanId ? (
+                          <Link
+                            href={`/admin/daily?plan=${row.original.order.dailyPlanId}`}
+                          >
+                            {row.original.order.code} · Hoàn tại gói Daily →
+                          </Link>
+                        ) : (
+                          row.original.order.code
+                        ),
                     },
                     {
                       header: "Số tiền",
@@ -1112,8 +1149,18 @@ export function AdminDashboard({
                         ]}
                   </span>
                   <span className="order-channel">
-                    {orderChannels[orderDetail.source ?? "WEBSITE"]}
+                    {orderDetail.dailyPlanId
+                      ? "Fleurious Daily"
+                      : orderChannels[orderDetail.source ?? "WEBSITE"]}
                   </span>
+                  {orderDetail.dailyPlanId && (
+                    <Link
+                      href={`/admin/daily?plan=${orderDetail.dailyPlanId}`}
+                      className="daily-badge"
+                    >
+                      Mở gói & hoàn tiền →
+                    </Link>
+                  )}
                 </div>
                 <time dateTime={orderDetail.createdAt}>
                   Tạo lúc {humanDate(orderDetail.createdAt)} · Hà Nội
@@ -1405,9 +1452,11 @@ export function AdminDashboard({
                     <div className="detail-panel-heading">
                       <h3>Thanh toán</h3>
                       <span>
-                        {orderDetail.paymentMethod === "SEPAY"
-                          ? "SePay"
-                          : "Tiền mặt / COD"}
+                        {orderDetail.paymentMethod === "PREPAID_PLAN"
+                          ? "Đã tài trợ từ gói Daily"
+                          : orderDetail.paymentMethod === "SEPAY"
+                            ? "SePay"
+                            : "Tiền mặt / COD"}
                       </span>
                     </div>
                     <dl className="detail-totals">
@@ -1728,6 +1777,42 @@ function Overview({
       {!analytics && collectionFinance(role) && (
         <CollectionsPanel role={role} initialQuery={collectionQuery} />
       )}
+      {data.daily && (
+        <section className="admin-panel">
+          <div className="panel-heading">
+            <h2>Fleurious Daily</h2>
+            <Link href="/admin/daily">Quản lý lịch hoa →</Link>
+          </div>
+          <div className="daily-financial-summary">
+            <span>
+              Tiền gói đã thu (toàn kỳ)
+              <strong>
+                {money(data.daily.cashReceived - data.daily.cashRefunded)}
+              </strong>
+            </span>
+            <span>
+              Giá trị đã giao<strong>{money(data.daily.deliveredValue)}</strong>
+            </span>
+            <span>
+              Giá trị còn phải giao
+              <strong>{money(data.daily.remainingValue)}</strong>
+            </span>
+            <span>
+              Chờ hoàn<strong>{money(data.daily.pendingRefund)}</strong>
+            </span>
+          </div>
+          {data.daily.attention > 0 && (
+            <p className="notice">
+              {data.daily.attention} lượt cần xử lý hoặc xếp lịch bù.{" "}
+              <Link href="/admin/daily">Mở lịch Daily →</Link>
+            </p>
+          )}
+          <p className="small muted">
+            Tiền gói được báo riêng, không cộng lại tiền đơn giao con vào thu
+            của đơn lẻ.
+          </p>
+        </section>
+      )}
       {data.paymentReviews > 0 && (
         <div className="admin-notice">
           {data.paymentReviews} giao dịch SePay cần đối soát.{" "}
@@ -1960,6 +2045,7 @@ function OrderPaymentControl({
         </small>
       )}
       {order.manualPayment &&
+        order.status !== "CANCELLED" &&
         ["UNPAID", "PENDING"].includes(order.paymentStatus) &&
         isPaymentOverdue(order) && (
           <small className="form-error">
@@ -2164,11 +2250,12 @@ function orderColumns(
             <CopyButton value={row.original.code} />
           </span>
           <small className="order-channel">
-            {
-              orderChannels[
-                (row.original.source ?? "WEBSITE") as keyof typeof orderChannels
-              ]
-            }
+            {row.original.dailyPlanId
+              ? "Fleurious Daily"
+              : orderChannels[
+                  (row.original.source ??
+                    "WEBSITE") as keyof typeof orderChannels
+                ]}
           </small>
         </div>
       ),
@@ -2384,7 +2471,9 @@ function KanbanCard({
       </div>
       <h3>{order.buyerName}</h3>
       <span className="order-channel">
-        {orderChannels[order.source ?? "WEBSITE"]}
+        {order.dailyPlanId
+          ? "Fleurious Daily"
+          : orderChannels[order.source ?? "WEBSITE"]}
       </span>
       <img src={order.items[0]?.image} alt="" />
       <p>{order.items[0]?.name}</p>

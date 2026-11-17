@@ -1,0 +1,1060 @@
+.daily-page,
+.daily-wizard,
+.daily-plan-detail {
+  --daily-border: rgba(110, 20, 35, 0.12);
+}
+.daily-hero {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 72px;
+  align-items: center;
+}
+.daily-hero h1 {
+  font-size: clamp(48px, 5.5vw, 84px);
+  line-height: 1.08;
+  margin: 22px 0;
+}
+.daily-hero p {
+  max-width: 480px;
+  line-height: 1.8;
+}
+.daily-hero-actions {
+  display: flex;
+  gap: 24px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 28px 0;
+}
+.daily-price {
+  display: block;
+  font-size: 13px;
+}
+.daily-price strong {
+  font-size: 21px;
+  margin: 0 5px;
+}
+.daily-hero-art {
+  height: 530px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(140deg, #e8d7c4, #f4eade);
+  border-radius: 150px 150px 12px 12px;
+  position: relative;
+  overflow: hidden;
+}
+.daily-hero-art > img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.daily-art-note {
+  position: absolute;
+  bottom: 22px;
+  left: 22px;
+  right: 22px;
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  background: rgba(244, 234, 222, 0.87);
+  backdrop-filter: blur(16px);
+  padding: 18px 22px;
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.daily-benefits {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 28px;
+  padding-top: 28px;
+  padding-bottom: 36px;
+  border-block: 1px solid rgba(110, 20, 35, 0.12);
+}
+.daily-benefits h3 {
+  font-family: inherit;
+  font-size: 15px;
+  margin: 12px 0 8px;
+}
+.daily-benefits p {
+  font-size: 13px;
+  line-height: 1.7;
+  opacity: 0.8;
+}
+.daily-tier-grid,
+.daily-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+}
+.daily-tier,
+.daily-panel {
+  background: rgba(255, 255, 255, 0.32);
+  border: 1px solid rgba(110, 20, 35, 0.12);
+  border-radius: 16px;
+  padding: 28px;
+}
+.daily-tier h3 {
+  font-size: 30px;
+  margin: 18px 0;
+}
+.daily-tier h3 small {
+  font-family: var(--font-sans, inherit);
+  font-size: 12px;
+  margin-left: 4px;
+}
+.daily-tier p {
+  font-size: 13px;
+  line-height: 1.8;
+}
+.daily-terms {
+  margin: 24px 0;
+  padding: 20px;
+  border: 1px solid rgba(110, 20, 35, 0.12);
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.8;
+}
+.daily-terms summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.daily-steps {
+  display: flex;
+  list-style: none;
+  padding: 0;
+  margin: 24px 0 32px;
+  gap: 16px;
+  border-bottom: 1px solid rgba(110, 20, 35, 0.12);
+}
+.daily-steps li {
+  flex: 1;
+}
+.daily-steps button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 0 16px;
+  width: 100%;
+  background: none;
+  border: 0;
+  font-size: 12px;
+  color: inherit;
+  opacity: 0.5;
+}
+.daily-steps button span {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.daily-steps .active button,
+.daily-steps .done button {
+  opacity: 1;
+}
+.daily-steps .active {
+  border-bottom: 2px solid #6e1423;
+}
+.daily-wizard-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 330px;
+  gap: 28px;
+  align-items: start;
+}
+.daily-summary {
+  position: sticky;
+  top: 100px;
+}
+.daily-summary h2 {
+  font-size: 28px;
+  margin: 14px 0 22px;
+}
+.daily-panel h2 {
+  margin: 0 0 22px;
+}
+.daily-panel label,
+.daily-settings label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+  margin: 14px 0;
+}
+.daily-panel textarea,
+.daily-settings textarea {
+  width: 100%;
+  resize: vertical;
+}
+.daily-form-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 16px;
+  align-items: end;
+}
+.daily-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 20px 0;
+}
+.daily-presets button {
+  border: 1px solid rgba(110, 20, 35, 0.18);
+  border-radius: 20px;
+  padding: 8px 14px;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+}
+.daily-calendar {
+  border: 1px solid rgba(110, 20, 35, 0.12);
+  border-radius: 16px;
+  padding: 18px;
+  background: rgba(255, 255, 255, 0.2);
+}
+.daily-calendar-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+  text-transform: capitalize;
+}
+.daily-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+}
+.daily-weekday {
+  text-align: center;
+  font-size: 11px;
+  opacity: 0.6;
+  padding: 8px 0;
+}
+.daily-day {
+  aspect-ratio: 1;
+  min-width: 0;
+  min-height: 42px;
+  border: 1px solid transparent;
+  position: relative;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.45);
+  border-radius: 9px;
+  color: #6e1423;
+  padding: 6px;
+  font-size: 13px;
+}
+.daily-day.selected {
+  background: #6e1423;
+  color: #f4eade;
+}
+.daily-day:disabled {
+  opacity: 0.26;
+  cursor: default;
+}
+.daily-day.selected:disabled {
+  opacity: 0.6;
+}
+.daily-day > svg {
+  position: absolute;
+  bottom: 5px;
+  right: 5px;
+}
+.daily-day > img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.72;
+}
+.daily-day.with-image {
+  background: #3d0d16;
+  color: white;
+}
+.daily-day span {
+  position: relative;
+  z-index: 1;
+}
+.daily-selected-days {
+  display: grid;
+  gap: 12px;
+  margin: 18px 0;
+}
+.daily-selected-days > div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.daily-selected-days > div > strong {
+  font-size: 12px;
+  white-space: nowrap;
+}
+.daily-selected-days .select-field {
+  flex: 1;
+  min-width: 0;
+}
+.daily-choice {
+  background: transparent;
+  border: 1px solid rgba(110, 20, 35, 0.18);
+  border-radius: 12px;
+  padding: 16px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  color: inherit;
+}
+.daily-choice.selected {
+  background: rgba(110, 20, 35, 0.07);
+  border-color: rgba(110, 20, 35, 0.5);
+}
+.daily-choice strong {
+  font-size: 13px;
+}
+.daily-choice span {
+  font-size: 12px;
+  line-height: 1.6;
+}
+.daily-tag-picker {
+  border: 0;
+  padding: 0;
+  margin: 22px 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.daily-tag-picker legend {
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+.daily-tag-picker label {
+  flex-direction: row;
+  align-items: center;
+  margin: 0;
+  border: 1px solid rgba(110, 20, 35, 0.15);
+  padding: 7px 10px;
+  border-radius: 18px;
+}
+.daily-tag-picker input,
+.daily-checkbox input,
+.daily-refund-options input {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  accent-color: #6e1423;
+  flex-shrink: 0;
+}
+.daily-panel .daily-checkbox,
+.daily-settings .daily-checkbox {
+  flex-direction: row;
+  align-items: flex-start;
+  line-height: 1.7;
+}
+.daily-offering-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(145px, 1fr));
+  gap: 16px;
+  margin: 20px 0;
+}
+.daily-offering-grid article {
+  font-size: 12px;
+  min-width: 0;
+}
+.daily-offering-grid img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 12px;
+  margin-bottom: 12px;
+}
+.daily-offering-grid p {
+  line-height: 1.6;
+}
+.daily-wizard-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin: 22px 0 0;
+}
+.daily-plan-list {
+  display: grid;
+  gap: 16px;
+}
+.daily-plan-card {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.3);
+  border: 1px solid rgba(110, 20, 35, 0.12);
+  border-radius: 14px;
+  padding: 24px;
+  text-align: left;
+  color: inherit;
+  width: 100%;
+}
+.daily-plan-card > div {
+  flex: 1;
+  min-width: 0;
+}
+.daily-plan-card h3 {
+  margin: 8px 0;
+}
+.daily-plan-card p,
+.daily-plan-card small {
+  font-size: 12px;
+  line-height: 1.7;
+}
+.daily-progress {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin: 20px 0;
+  font-size: 12px;
+}
+.daily-progress progress {
+  flex: 1;
+  max-width: 300px;
+  height: 6px;
+  accent-color: #6e1423;
+}
+.daily-financial-summary {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin: 24px 0;
+}
+.daily-financial-summary > span {
+  font-size: 12px;
+  flex: 1;
+  min-width: 130px;
+  background: rgba(110, 20, 35, 0.045);
+  padding: 16px;
+  border-radius: 12px;
+}
+.daily-financial-summary strong {
+  display: block;
+  font-size: 20px;
+  margin-top: 8px;
+}
+.daily-detail-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.9fr) minmax(0, 1.1fr);
+  gap: 24px;
+  margin-top: 28px;
+  align-items: start;
+}
+.daily-delivery-list {
+  display: grid;
+  gap: 8px;
+  margin: 20px 0;
+  max-height: 480px;
+  overflow: auto;
+}
+.daily-delivery-list button {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid rgba(110, 20, 35, 0.1);
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  padding: 14px;
+  font-size: 12px;
+}
+.daily-delivery-list button.selected {
+  background: rgba(110, 20, 35, 0.07);
+  border-color: rgba(110, 20, 35, 0.4);
+}
+.daily-detail-image {
+  display: block;
+  width: 100%;
+  height: 240px;
+  object-fit: cover;
+  border-radius: 12px;
+}
+.daily-delivery-detail p {
+  font-size: 13px;
+  line-height: 1.7;
+}
+.daily-refund-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+  margin: 18px 0;
+}
+.daily-refund-options label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.daily-refund-item {
+  border-top: 1px solid rgba(110, 20, 35, 0.12);
+  padding: 18px 0;
+  font-size: 13px;
+}
+.daily-admin {
+  max-width: 1400px;
+  width: 100%;
+}
+.daily-admin > .section-heading h1 {
+  font-size: clamp(30px, 3.2vw, 44px);
+}
+.daily-admin .daily-plan-detail h1 {
+  font-size: 36px;
+}
+.daily-admin > .account-tabs {
+  margin-bottom: 24px;
+}
+.daily-admin .account-tabs button {
+  background: none;
+  border: 0;
+  padding: 14px;
+  color: inherit;
+  border-bottom: 2px solid transparent;
+  font-size: 13px;
+}
+.daily-admin .account-tabs button.active {
+  border-color: #6e1423;
+}
+.daily-settings {
+  display: grid;
+  gap: 24px;
+}
+.daily-settings > .admin-panel {
+  padding: 28px;
+}
+.daily-tier-editor {
+  padding: 12px 20px;
+  border: 1px solid rgba(110, 20, 35, 0.15);
+  border-radius: 12px;
+  margin: 18px 0;
+}
+.daily-tier-editor legend {
+  padding: 0 8px;
+  font-size: 13px;
+}
+.daily-simulation {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 24px;
+}
+.daily-simulation p {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+}
+.daily-simulation h3 {
+  font-family: inherit;
+  font-size: 15px;
+}
+.daily-badge {
+  display: inline-flex;
+  font-size: 10px;
+  border: 1px solid rgba(110, 20, 35, 0.15);
+  border-radius: 16px;
+  padding: 4px 8px;
+  margin: 4px 0;
+}
+@media (max-width: 900px) {
+  .daily-hero {
+    gap: 28px;
+  }
+  .daily-hero-art {
+    height: 420px;
+  }
+  .daily-wizard-layout {
+    grid-template-columns: minmax(0, 1fr) 280px;
+    gap: 18px;
+  }
+  .daily-choice-grid {
+    grid-template-columns: 1fr;
+  }
+  .daily-choice {
+    display: grid;
+    grid-template-columns: 24px 1fr;
+    gap: 8px 12px;
+  }
+  .daily-choice span {
+    grid-column: 2;
+  }
+  .daily-panel {
+    padding: 22px;
+  }
+  .daily-tier {
+    padding: 22px;
+  }
+  .daily-benefits {
+    gap: 18px;
+  }
+  .daily-detail-layout {
+    gap: 18px;
+  }
+}
+@media (max-width: 700px) {
+  .daily-admin > .section-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .daily-hero {
+    grid-template-columns: 1fr;
+    gap: 32px;
+  }
+  .daily-hero h1 {
+    font-size: 48px;
+  }
+  .daily-hero-art {
+    height: 350px;
+    max-width: 460px;
+    width: 100%;
+    justify-self: center;
+    border-radius: 100px 100px 12px 12px;
+  }
+  .daily-hero-actions {
+    gap: 18px;
+  }
+  .daily-benefits {
+    grid-template-columns: 1fr 1fr;
+    gap: 22px;
+    padding-block: 26px;
+  }
+  .daily-tier-grid {
+    grid-template-columns: 1fr;
+  }
+  .daily-tier h3 {
+    font-size: 29px;
+  }
+  .daily-wizard-layout,
+  .daily-detail-layout {
+    grid-template-columns: 1fr;
+  }
+  .daily-steps {
+    gap: 4px;
+    margin-bottom: 22px;
+  }
+  .daily-steps button {
+    flex-direction: column;
+    gap: 7px;
+    font-size: 10px;
+  }
+  .daily-panel {
+    padding: 20px;
+  }
+  .daily-summary {
+    position: static;
+  }
+  .daily-wizard .page-heading h1 {
+    font-size: 38px;
+  }
+  .daily-wizard-actions .button {
+    flex: 1;
+    min-width: 130px;
+  }
+  .daily-day {
+    min-height: 38px;
+  }
+  .daily-calendar {
+    padding: 12px;
+  }
+  .daily-calendar-grid {
+    gap: 4px;
+  }
+  .daily-selected-days > div {
+    gap: 8px;
+  }
+  .daily-selected-days > div > strong {
+    font-size: 11px;
+  }
+  .daily-selected-days .select-trigger {
+    font-size: 11px;
+  }
+  .daily-plan-card {
+    padding: 18px;
+    gap: 14px;
+  }
+  .daily-financial-summary {
+    gap: 8px;
+  }
+  .daily-financial-summary > span {
+    min-width: 100px;
+    padding: 12px;
+  }
+  .daily-financial-summary strong {
+    font-size: 17px;
+  }
+  .daily-plan-detail h1 {
+    font-size: 38px;
+  }
+  .daily-plan-detail .section-heading {
+    gap: 18px;
+  }
+  .daily-refund-options {
+    grid-template-columns: 1fr;
+  }
+  .daily-form-row {
+    grid-template-columns: 1fr;
+  }
+  .daily-settings > .admin-panel {
+    padding: 18px;
+  }
+  .daily-admin {
+    padding-inline: 14px;
+  }
+  .daily-admin .account-tabs {
+    overflow: auto;
+    white-space: nowrap;
+  }
+  .daily-offering-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .daily-detail-image {
+    height: 230px;
+  }
+  .daily-admin .daily-plan-detail h1 {
+    font-size: 30px;
+  }
+}
+.daily-date-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: stretch;
+  min-width: 0;
+}
+.daily-date-columns > .daily-calendar {
+  min-width: 0;
+}
+.daily-panel .daily-calendar-note {
+  margin: 16px 0 0;
+  line-height: 1.7;
+}
+.daily-scroll-panel {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid rgba(110, 20, 35, 0.12);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.25);
+}
+.daily-scroll-panel > .daily-selected-days,
+.daily-scroll-panel > .daily-delivery-list {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  max-height: none;
+  margin: 0;
+  padding: 8px;
+  align-content: start;
+}
+.daily-scroll-panel .daily-selected-days > div {
+  grid-template-columns: minmax(0, 1fr) 32px;
+  padding: 10px;
+}
+.daily-scroll-panel .daily-selected-days > div > strong {
+  grid-column: 1 / -1;
+}
+@media (min-width: 1100px) {
+  .daily-detail-layout {
+    grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr);
+    gap: 18px;
+  }
+  .daily-wizard-layout {
+    grid-template-columns: minmax(0, 1fr) 280px;
+    gap: 20px;
+  }
+  .daily-detail-layout .daily-panel,
+  .daily-wizard-layout > .daily-panel {
+    padding: 20px;
+  }
+  .daily-detail-layout .daily-calendar {
+    padding: 14px;
+  }
+  .daily-detail-layout .daily-day {
+    min-height: 44px;
+  }
+  .daily-detail-layout .daily-detail-image {
+    height: 160px;
+  }
+  .daily-detail-layout h2 {
+    font-size: 24px;
+  }
+}
+@media (min-width: 701px) and (max-width: 1099px) {
+  .daily-detail-layout,
+  .daily-wizard-layout {
+    grid-template-columns: 1fr;
+  }
+  .daily-summary {
+    position: static;
+  }
+}
+@media (max-width: 700px) {
+  .daily-date-columns {
+    grid-template-columns: 1fr;
+  }
+  .daily-scroll-panel {
+    min-height: 200px;
+    height: 280px;
+  }
+}
+.daily-payment-confirm-actions {
+  margin: 16px 0 24px;
+}
+.daily-delivery-message {
+  margin-top: 24px;
+  padding: 16px;
+  border: 1px solid rgba(110, 20, 35, 0.1);
+  border-radius: 12px;
+  background: rgba(110, 20, 35, 0.025);
+}
+.daily-delivery-info {
+  margin-top: 24px;
+}
+.daily-delivery-info-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.daily-delivery-info-heading > span:first-child {
+  font-size: 12px;
+  font-weight: 600;
+}
+.daily-delivery-facts {
+  margin: 0;
+}
+.daily-delivery-facts > div {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  align-items: start;
+  gap: 12px;
+  padding: 14px 0;
+  border-bottom: 1px solid rgba(110, 20, 35, 0.09);
+}
+.daily-delivery-facts dt {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #796660;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.daily-delivery-facts dt svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+.daily-delivery-facts dd {
+  min-width: 0;
+  margin: 0;
+  text-align: right;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+.daily-delivery-facts dd small {
+  display: block;
+  margin-top: 4px;
+  font-size: 10px;
+  font-weight: 400;
+  color: #796660;
+}
+.daily-delivery-facts > .daily-delivery-value {
+  align-items: center;
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.daily-delivery-value strong {
+  color: #6e1423;
+  font-size: 19px;
+  font-weight: 600;
+}
+.daily-delivery-message-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #6e1423;
+}
+.daily-delivery-message-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.daily-delivery-message .daily-message-action {
+  width: 32px;
+  height: 32px;
+}
+.daily-delivery-message textarea {
+  display: block;
+  width: 100%;
+  min-height: 110px;
+  margin-top: 12px;
+  padding: 10px;
+  resize: vertical;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.8;
+}
+.daily-delivery-message-count {
+  margin-top: 7px;
+  text-align: right;
+  color: #796660;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.daily-delivery-message-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 11px;
+  color: #8a5b22;
+  line-height: 1.7;
+}
+.daily-message-saving {
+  animation: daily-message-spin 0.8s linear infinite;
+}
+@keyframes daily-message-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .daily-message-saving {
+    animation: none;
+  }
+}
+@media (max-width: 700px) {
+  .daily-delivery-message textarea {
+    font-size: 16px;
+  }
+  .daily-delivery-message .daily-message-action {
+    width: 36px;
+    height: 36px;
+  }
+}
+.daily-delivery-order-link {
+  margin-top: 22px;
+}
+.daily-delivery-message p {
+  margin: 8px 0 0;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.daily-delivery-edit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 20px;
+}
+.daily-delivery-edit-actions .button {
+  min-height: 38px;
+  padding: 9px 13px;
+  font-size: 12px;
+}
+.daily-delivery-modal {
+  max-width: 600px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.daily-delivery-modal .modal-heading {
+  align-items: flex-start;
+  gap: 14px;
+}
+.daily-delivery-modal .modal-heading h2 {
+  font-size: 26px;
+  margin-top: 8px;
+}
+.daily-delivery-modal .modal-heading > button {
+  flex-shrink: 0;
+}
+.daily-delivery-edit-fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.daily-delivery-edit-fields label {
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+  min-width: 0;
+}
+.daily-delivery-edit-fields textarea {
+  width: 100%;
+  resize: vertical;
+}
+.daily-delivery-modal .daily-wizard-actions {
+  margin-top: 4px;
+}
+.daily-delivery-modal .notice .text-link {
+  display: block;
+  margin-top: 10px;
+}
+.daily-delivery-modal .daily-delivery-pause {
+  justify-self: start;
+  margin-top: 8px;
+}
+@media (max-width: 700px) {
+  .daily-delivery-modal {
+    padding: 20px;
+  }
+  .daily-delivery-modal .daily-wizard-actions {
+    gap: 10px;
+  }
+  .daily-delivery-modal .button {
+    padding: 10px 14px;
+    font-size: 12px;
+  }
+}
+.daily-payment-confirm-actions > .small.muted {
+  margin-top: 10px;
+  line-height: 1.7;
+}
+.daily-payment-modal {
+  max-width: 600px;
+}
+.daily-payment-modal .modal-heading h2 {
+  font-size: 26px;
+}
+.daily-payment-confirm-amount {
+  padding: 18px;
+  border: 1px solid rgba(110, 20, 35, 0.14);
+  border-radius: 12px;
+  background: rgba(110, 20, 35, 0.03);
+}
+.daily-payment-confirm-amount > span {
+  font-size: 12px;
+  color: #796660;
+}
+.daily-payment-confirm-amount > strong {
+  display: block;
+  margin-top: 10px;
+  color: #6e1423;
+  font-size: 26px;
+}
+.daily-payment-confirm-amount > p {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.7;
+}
+@media (max-width: 700px) {
+  .daily-payment-modal .daily-wizard-actions {
+    flex-wrap: wrap;
+  }
+  .daily-payment-modal .daily-wizard-actions .button {
+    min-width: 0;
+    font-size: 12px;
+  }
+}

@@ -13,6 +13,33 @@ export type CatalogueTaxonomy = {
   slug: string;
   active: boolean;
 };
+export const DAILY_CATEGORY = "Hoa mỗi ngày";
+export function isDailyCategory(name: string) {
+  return ["hoa-moi-ngay", "hoa-daily", "fleurious-daily"].includes(
+    catalogueSlug(name),
+  );
+}
+type Classified = {
+  category: string;
+  occasion: string;
+  color: string;
+  taxonomies?: { taxonomy: { kind: string; name: string } }[];
+};
+export function productClassifications<T extends Classified>(p: T) {
+  const names = (kind: string, fallback: string) => {
+    const values =
+      p.taxonomies
+        ?.filter((r) => r.taxonomy.kind === kind)
+        .map((r) => r.taxonomy.name) ?? [];
+    return [...new Set(values.length ? values : fallback ? [fallback] : [])];
+  };
+  return {
+    ...p,
+    categories: names("CATEGORY", p.category),
+    occasions: names("OCCASION", p.occasion),
+    colors: names("COLOR", p.color),
+  };
+}
 export function catalogueSlug(value: string) {
   return value
     .normalize("NFD")

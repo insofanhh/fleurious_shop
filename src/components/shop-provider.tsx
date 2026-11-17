@@ -131,7 +131,9 @@ export function ShopProvider({
       toast("Không thể đồng bộ tài khoản. Bạn vẫn có thể xem hoa.");
     });
     if ("serviceWorker" in navigator && window.isSecureContext)
-      navigator.serviceWorker.register("/sw.js").catch(() => {});
+      navigator.serviceWorker
+        .register("/sw.js", { updateViaCache: "none" })
+        .catch(() => {});
   }, [refresh, toast]);
   useEffect(() => {
     if (message) {

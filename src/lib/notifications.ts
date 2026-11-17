@@ -86,6 +86,18 @@ export async function notifyStaff(
 
 export async function projectStaffNotification(event: Outbox) {
   const payload = event.payload as Record<string, unknown>;
+  if (event.event.startsWith("daily.") && typeof payload.planId === "string") {
+    await notifyStaff(
+      event.id,
+      event.event.includes("refund") ? "payments" : "orders",
+      event.event === "daily.action_required"
+        ? "Lịch Daily cần xử lý"
+        : "Cập nhật Fleurious Daily",
+      "Mở lịch hoa để xem thanh toán, các lượt giao và việc cần chuẩn bị.",
+      `/admin/daily?plan=${payload.planId}`,
+    );
+    return;
+  }
   if (event.event.startsWith("order.") && typeof payload.orderId === "string") {
     const order = await db.order.findUnique({ where: { id: payload.orderId } });
     if (!order) return;

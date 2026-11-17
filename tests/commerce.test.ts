@@ -1358,9 +1358,9 @@ test("all manual SePay stages are available while unpaid, with independent payme
   }
 });
 
-test("overdue manual payment keeps production and reservations; late transfers require review and can be verified manually", async () => {
+test("overdue manual payment already in production keeps reservations; late transfers require review and can be verified manually", async () => {
   const reference = `LATE-${randomUUID()}`;
-  let order = await onlineManual();
+  let order = await onlineManual("PREPARING");
   order = await db.order.update({
     where: { id: order.id },
     data: { expiresAt: new Date(0), paymentDueAt: new Date(0) },
@@ -1368,7 +1368,7 @@ test("overdue manual payment keeps production and reservations; late transfers r
   await expireReservations();
   assert.equal(
     (await db.order.findUniqueOrThrow({ where: { id: order.id } })).status,
-    "PENDING",
+    "CONFIRMED",
   );
   assert.equal(isOrderExpired(order), false);
   assert.equal(isPaymentOverdue(order), true);
@@ -2005,6 +2005,7 @@ test("reorder expires only the authorized unpaid source and prepares current sto
   const first = await prepareReorder(source.id, user.id);
   const replay = await prepareReorder(source.id, user.id);
   assert.deepEqual(first.items, [{ variantId, quantity: 1 }]);
+  assert.equal(first.restartOrderId, source.id);
   assert.deepEqual(replay.items, first.items);
   assert.equal(first.draft.recipientName, source.recipientName);
   assert.equal(first.draft.address, source.address);
@@ -2026,6 +2027,443 @@ test("reorder expires only the authorized unpaid source and prepares current sto
       .revoked,
     true,
   );
+});
+
+test("expired pending manual transfers move to Cancelled once, releasing stock and publishing a realtime event", async () => {
+  const source = await onlineManual();
+  const stock = await db.productVariant.findUniqueOrThrow({
+    where: { id: variantId },
+  });
+  const booking = await db.slotBooking.findUniqueOrThrow({
+    where: { day_slotId: { day: source.deliveryDay, slotId: source.slotId } },
+  });
+  await db.order.update({
+    where: { id: source.id },
+    data: { paymentDueAt: new Date(0) },
+  });
+  await expireReservations(source.id);
+  await expireReservations(source.id);
+  const cancelled = await db.order.findUniqueOrThrow({
+    where: { id: source.id },
+  });
+  assert.equal(orderLane(cancelled), "CANCELLED");
+  assert.equal(cancelled.stockState, "RELEASED");
+  assert.equal(cancelled.version, source.version + 1);
+  assert(cancelled.expiredAt);
+  assert(isOrderExpired(cancelled));
+  assert.equal(
+    (await db.productVariant.findUniqueOrThrow({ where: { id: variantId } }))
+      .reserved,
+    stock.reserved - 1,
+  );
+  assert.equal(
+    (
+      await db.slotBooking.findUniqueOrThrow({
+        where: {
+          day_slotId: { day: source.deliveryDay, slotId: source.slotId },
+        },
+      })
+    ).count,
+    booking.count - 1,
+  );
+  assert.equal(
+    await db.outbox.count({
+      where: {
+        event: "order.status_changed",
+        payload: { path: "$.orderId", equals: source.id },
+      },
+    }),
+    1,
+  );
+  assert.equal((await getOrderPaymentQr(admin, source.id)).url, null);
+  const tracked = await trackOrder({ code: source.code });
+  assert.equal(tracked.status, "CANCELLED");
+  assert.equal(tracked.canPay, false);
+});
+
+test("expiry leaves manual COD, unlimited transfers and already-paid orders active", async () => {
+  const raw = { ...input(), source: "IN_STORE", paymentMethod: "COD" };
+  const quote = await quoteAdminOrder(raw, admin);
+  const cod = await createAdminOrder(
+    { ...raw, expectedTotal: quote.total },
+    admin,
+  );
+  const unlimited = await onlineManual("PENDING", null);
+  const paid = await onlineManual();
+  await confirmOrderPayment(
+    paid.id,
+    { version: paid.version, reference: randomUUID(), reason: "Đã thu đủ" },
+    admin,
+  );
+  for (const source of [cod, unlimited, paid]) {
+    await db.order.update({
+      where: { id: source.id },
+      data: { expiresAt: new Date(0) },
+    });
+    await expireReservations(source.id);
+    const actual = await db.order.findUniqueOrThrow({
+      where: { id: source.id },
+    });
+    assert.notEqual(actual.status, "CANCELLED");
+    assert.equal(actual.stockState, "RESERVED");
+  }
+});
+
+test("placing an expired order again restores the same ID/code with a new payment reference and deadline", async () => {
+  const user = await customer();
+  const firstInput = input({ paymentMethod: "SEPAY" });
+  const source = await createOrder(firstInput, user, "test");
+  const oldQr = await qr(source);
+  await db.order.update({
+    where: { id: source.id },
+    data: { expiresAt: new Date(0) },
+  });
+  const draft = await prepareReorder(source.id, user.id);
+  const count = await db.order.count();
+  const request = input({
+    paymentMethod: "SEPAY",
+    restartOrderId: draft.restartOrderId,
+    deliveryDay: shiftDay(dayKey(), 2),
+    cardMessage: "Lời nhắn đặt lại",
+  });
+  const restarted = await createOrder(request, user, "test");
+  assert.equal(restarted.id, source.id);
+  assert.equal(restarted.code, source.code);
+  assert.equal(orderLane(restarted), "PENDING");
+  assert.equal(restarted.expiredAt, null);
+  assert.equal(restarted.checkoutAttempt, 2);
+  assert.equal(restarted.manualPayment, false);
+  assert(restarted.expiresAt > new Date());
+  assert(restarted.paymentCode && restarted.paymentCode !== source.code);
+  assert.equal(restarted.deliveryDay, request.deliveryDay);
+  assert.equal(await db.order.count(), count);
+  assert.notEqual(await qr(restarted), oldQr);
+  assert.equal(
+    (await db.qrGrant.findUniqueOrThrow({ where: { orderId: source.id } }))
+      .revoked,
+    false,
+  );
+  const replay = await createOrder(request, user, "test");
+  const originalReplay = await createOrder(firstInput, user, "test");
+  assert.equal(replay.version, restarted.version);
+  assert.equal(originalReplay.id, source.id);
+  assert.equal(await db.order.count(), count);
+  assert.equal(
+    (await trackingPayment({ code: source.code })).code,
+    restarted.paymentCode,
+  );
+  assert.equal(
+    (await getOrderPaymentQr(admin, source.id)).paymentCode,
+    restarted.paymentCode,
+  );
+  const oldTransfer = await receiveSepay({
+    id: randomUUID(),
+    referenceCode: randomUUID(),
+    accountNumber: "TESTACCOUNT",
+    transferType: "in",
+    transferAmount: restarted.total,
+    content: source.code,
+  });
+  assert.equal(oldTransfer.matched, false);
+  assert.equal(
+    (await db.order.findUniqueOrThrow({ where: { id: source.id } }))
+      .paymentStatus,
+    "UNPAID",
+  );
+  const payment = {
+    id: randomUUID(),
+    referenceCode: randomUUID(),
+    accountNumber: "TESTACCOUNT",
+    transferType: "in" as const,
+    transferAmount: restarted.total,
+    content: restarted.paymentCode!,
+  };
+  assert.equal((await receiveSepay(payment)).matched, true);
+  assert.equal((await receiveSepay(payment)).duplicate, true);
+  const done = await db.order.findUniqueOrThrow({ where: { id: source.id } });
+  assert.equal(done.status, "CONFIRMED");
+  assert.equal(orderLane(done), "UNASSIGNED");
+  assert.equal(
+    await db.payment.count({ where: { orderId: source.id, state: "REVIEW" } }),
+    1,
+  );
+});
+
+test("a manual expired order with an account is restored in the same Kanban card", async () => {
+  const user = await customer();
+  const raw = {
+    ...input(),
+    source: "IN_STORE",
+    customerId: user.id,
+    paymentMethod: "SEPAY",
+  };
+  const quote = await quoteAdminOrder(raw, admin);
+  const source = await createAdminOrder(
+    { ...raw, expectedTotal: quote.total },
+    admin,
+  );
+  await db.order.update({
+    where: { id: source.id },
+    data: { paymentDueAt: new Date(0) },
+  });
+  await expireReservations(source.id);
+  const preview = await prepareReorder(source.id, user.id);
+  const order = await createOrder(
+    input({ restartOrderId: preview.restartOrderId, paymentMethod: "SEPAY" }),
+    user,
+    "test",
+  );
+  assert.equal(order.id, source.id);
+  assert.equal(order.source, "IN_STORE");
+  assert.equal(orderLane(order), "PENDING");
+  const originalReplay = await createAdminOrder(
+    { ...raw, expectedTotal: quote.total },
+    admin,
+  );
+  assert.equal(originalReplay.id, order.id);
+  assert.equal(originalReplay.version, order.version);
+});
+
+test("concurrent restarts reserve once, reject another draft and preserve old idempotency keys", async () => {
+  const user = await customer();
+  const source = await createOrder(
+    input({ paymentMethod: "SEPAY" }),
+    user,
+    "test",
+  );
+  await db.order.update({
+    where: { id: source.id },
+    data: { expiresAt: new Date(0) },
+  });
+  await expireReservations(source.id);
+  const before = await db.productVariant.findUniqueOrThrow({
+    where: { id: variantId },
+  });
+  const request = input({ restartOrderId: source.id, paymentMethod: "SEPAY" });
+  const result = await Promise.all([
+    createOrder(request, user, "test"),
+    createOrder(request, user, "test"),
+  ]);
+  assert.equal(result[0].id, result[1].id);
+  assert.equal(result[0].version, result[1].version);
+  assert.equal(
+    (await db.productVariant.findUniqueOrThrow({ where: { id: variantId } }))
+      .reserved,
+    before.reserved + 1,
+  );
+  await assert.rejects(
+    () =>
+      createOrder({ ...request, idempotencyKey: randomUUID() }, user, "test"),
+    { code: "ORDER_RESTART_UNAVAILABLE" },
+  );
+});
+
+test("restart revalidates price/stock, checks ownership and blocks unresolved incoming money without changing the cancelled order", async () => {
+  const user = await customer();
+  const source = await createOrder(
+    input({ paymentMethod: "SEPAY" }),
+    user,
+    "test",
+  );
+  await db.order.update({
+    where: { id: source.id },
+    data: { expiresAt: new Date(0) },
+  });
+  await expireReservations(source.id);
+  const request = input({
+    restartOrderId: source.id,
+    paymentMethod: "SEPAY",
+    expectedTotal: source.total - 1,
+  });
+  const stranger = await customer();
+  await assert.rejects(() => createOrder(request, stranger, "test"), {
+    code: "NOT_FOUND",
+  });
+  await assert.rejects(() => createOrder(request, user, "test"), {
+    code: "PRICE_CHANGED",
+  });
+  const before = await db.productVariant.findUniqueOrThrow({
+    where: { id: variantId },
+  });
+  await db.productVariant.update({
+    where: { id: variantId },
+    data: { stock: before.reserved },
+  });
+  try {
+    await assert.rejects(
+      () => createOrder({ ...request, expectedTotal: undefined }, user, "test"),
+      { code: "OUT_OF_STOCK" },
+    );
+  } finally {
+    await db.productVariant.update({
+      where: { id: variantId },
+      data: { stock: before.stock },
+    });
+  }
+  assert.equal(
+    (await db.order.findUniqueOrThrow({ where: { id: source.id } })).status,
+    "CANCELLED",
+  );
+  assert.equal(
+    (await db.productVariant.findUniqueOrThrow({ where: { id: variantId } }))
+      .reserved,
+    before.reserved,
+  );
+  await receiveSepay({
+    id: randomUUID(),
+    accountNumber: "TESTACCOUNT",
+    transferType: "in",
+    transferAmount: source.total,
+    content: source.code,
+  });
+  await assert.rejects(
+    () => createOrder({ ...request, expectedTotal: undefined }, user, "test"),
+    { code: "PAYMENT_REVIEW_PENDING" },
+  );
+});
+
+test("repeated restarts release and reserve member quota by attempt without double consumption", async () => {
+  const user = await customer(true);
+  let order = await createOrder(
+    input({ paymentMethod: "SEPAY", useMember: true }),
+    user,
+    "test",
+  );
+  for (let i = 0; i < 2; i++) {
+    await db.order.update({
+      where: { id: order.id },
+      data: { expiresAt: new Date(0) },
+    });
+    await expireReservations(order.id);
+    order = await createOrder(
+      input({
+        restartOrderId: order.id,
+        paymentMethod: "SEPAY",
+        useMember: true,
+      }),
+      user,
+      "test",
+    );
+  }
+  assert.equal(order.checkoutAttempt, 3);
+  const paid = await receiveSepay({
+    id: randomUUID(),
+    accountNumber: "TESTACCOUNT",
+    transferType: "in",
+    transferAmount: order.total,
+    content: order.paymentCode!,
+  });
+  assert.equal(paid.matched, true);
+  const ledger = await db.memberLedger.findMany({
+    where: { orderId: order.id },
+  });
+  assert.equal(ledger.filter((v) => v.action === "RESERVED").length, 3);
+  assert.equal(ledger.filter((v) => v.action === "RELEASED").length, 2);
+  assert.equal(ledger.filter((v) => v.action === "CONSUMED").length, 1);
+  const period = await db.memberPeriod.findUniqueOrThrow({
+    where: { id: order.memberPeriodId! },
+  });
+  assert.equal(period.reserved, 0);
+  assert.equal(period.consumed, 1);
+});
+
+test("a guest can restore only the order belonging to the same browser cookie", async () => {
+  const token = randomUUID(),
+    ownerHash = hash(token);
+  const source = await createOrder(
+    input({ paymentMethod: "SEPAY" }),
+    null,
+    ownerHash,
+  );
+  await db.order.update({
+    where: { id: source.id },
+    data: { expiresAt: new Date(0) },
+  });
+  await expireReservations(source.id);
+  const draft = await prepareReorder(source.id, undefined, token);
+  const request = input({
+    restartOrderId: draft.restartOrderId,
+    paymentMethod: "SEPAY",
+  });
+  await assert.rejects(() => createOrder(request, null, hash(randomUUID())), {
+    code: "NOT_FOUND",
+  });
+  const order = await createOrder(request, null, ownerHash);
+  assert.equal(order.id, source.id);
+  assert.equal(order.userId, null);
+  assert.equal(order.guestHash, ownerHash);
+  assert.equal(order.status, "PENDING");
+});
+
+test("restoring the same order reuses the released voucher row without duplicating usage", async () => {
+  const user = await customer();
+  const voucher = await db.voucher.create({
+    data: {
+      code: `RETRY${randomUUID().slice(0, 8).toUpperCase()}`,
+      title: "Ưu đãi đặt lại",
+      percent: 10,
+      cap: 100000,
+      minimum: 0,
+      limit: 1,
+      expiresAt: new Date(Date.now() + 3600000),
+    },
+  });
+  let orderId = "";
+  try {
+    let order = await createOrder(
+      input({ paymentMethod: "SEPAY", voucherCode: voucher.code }),
+      user,
+      "test",
+    );
+    orderId = order.id;
+    for (let i = 0; i < 2; i++) {
+      await db.order.update({
+        where: { id: order.id },
+        data: { expiresAt: new Date(0) },
+      });
+      await expireReservations(order.id);
+      assert.equal(
+        (await db.voucher.findUniqueOrThrow({ where: { id: voucher.id } }))
+          .used,
+        0,
+      );
+      order = await createOrder(
+        input({
+          restartOrderId: order.id,
+          paymentMethod: "SEPAY",
+          voucherCode: voucher.code,
+        }),
+        user,
+        "test",
+      );
+      assert.equal(order.discount, 50000);
+      assert.equal(
+        (await db.voucher.findUniqueOrThrow({ where: { id: voucher.id } }))
+          .used,
+        1,
+      );
+      assert.equal(await db.voucherUse.count({ where: { orderId } }), 1);
+    }
+    assert.equal(
+      (
+        await receiveSepay({
+          id: randomUUID(),
+          accountNumber: "TESTACCOUNT",
+          transferType: "in",
+          transferAmount: order.total,
+          content: order.paymentCode!,
+        })
+      ).matched,
+      true,
+    );
+    assert.equal(
+      (await db.voucherUse.findUniqueOrThrow({ where: { orderId } })).state,
+      "USED",
+    );
+  } finally {
+    if (orderId) await db.voucherUse.deleteMany({ where: { orderId } });
+    await db.voucher.delete({ where: { id: voucher.id } });
+  }
 });
 
 test("reorder retains guest ownership and reports discontinued or short stock", async () => {

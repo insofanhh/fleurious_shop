@@ -13,6 +13,7 @@ import {
   LayoutDashboard,
   ShoppingBag,
   CalendarDays,
+  Flower2,
   LayoutGrid,
   Package,
   Users,
@@ -42,6 +43,7 @@ export const adminSections = [
   { id: "overview", name: "Tổng quan", Icon: LayoutDashboard, group: "" },
   { id: "orders", name: "Đơn hàng", Icon: ShoppingBag },
   { id: "calendar", name: "Lịch giao hoa", Icon: CalendarDays },
+  { id: "daily", name: "Hoa mỗi ngày", Icon: Flower2 },
   { id: "products", name: "Sản phẩm", Icon: FlowerIcon, group: "CỬA HÀNG" },
   { id: "taxonomies", name: "Danh mục & size", Icon: LayoutGrid },
   { id: "inventory", name: "Tồn kho", Icon: Package },
@@ -108,15 +110,19 @@ export function AdminFrame({
     });
   }
   const navArea = (id: string) =>
-    ["taxonomies", "inventory"].includes(id)
-      ? "products"
-      : id === "reviews"
-        ? "content"
-        : ["members", "streaks"].includes(id)
-          ? "customers"
-          : ["team", "jobs", "audit"].includes(id)
-            ? "settings"
-            : id;
+    id === "daily"
+      ? role === "ACCOUNTANT"
+        ? "payments"
+        : "orders"
+      : ["taxonomies", "inventory"].includes(id)
+        ? "products"
+        : id === "reviews"
+          ? "content"
+          : ["members", "streaks"].includes(id)
+            ? "customers"
+            : ["team", "jobs", "audit"].includes(id)
+              ? "settings"
+              : id;
 
   return (
     <div className={`admin-app ${collapsed ? "sidebar-collapsed" : ""}`}>

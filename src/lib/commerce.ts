@@ -27,6 +27,7 @@ import {
 import { atomic, type Tx } from "./transaction";
 export { atomic } from "./transaction";
 export const checkoutSchema = z.object({
+  restartOrderId: z.string().min(1).max(100).optional(),
   expectedTotal: z.number().int().min(0).optional(),
   items: z
     .array(
@@ -279,9 +280,16 @@ export async function createOrder(
       error instanceof Prisma.PrismaClientKnownRequestError &&
       error.code === "P2002"
     ) {
-      const replay = await db.order.findUnique({
-        where: { idempotencyKey: input.idempotencyKey },
-      });
+      const replay =
+        (
+          await db.orderPaymentAttempt.findUnique({
+            where: { idempotencyKey: input.idempotencyKey },
+            include: { order: true },
+          })
+        )?.order ??
+        (await db.order.findUnique({
+          where: { idempotencyKey: input.idempotencyKey },
+        }));
       if (
         replay &&
         (replay.userId === user?.id || replay.guestHash === guestHash)
@@ -307,9 +315,16 @@ export async function createOrderTx(
     allowManualShipping?: boolean;
   } = {},
 ) {
-  const existing = await tx.order.findUnique({
-    where: { idempotencyKey: input.idempotencyKey },
-  });
+  const existing =
+    (
+      await tx.orderPaymentAttempt.findUnique({
+        where: { idempotencyKey: input.idempotencyKey },
+        include: { order: true },
+      })
+    )?.order ??
+    (await tx.order.findUnique({
+      where: { idempotencyKey: input.idempotencyKey },
+    }));
   if (existing) {
     if (
       (user && existing.userId === user.id) ||
@@ -317,6 +332,60 @@ export async function createOrderTx(
     )
       return existing;
     fail("IDEMPOTENCY_CONFLICT", "Không thể dùng lại yêu cầu này.", 409);
+  }
+  let restart: DbOrder | null = null;
+  if (input.restartOrderId) {
+    await tx.$queryRaw`SELECT id FROM \`Order\` WHERE id=${input.restartOrderId} FOR UPDATE`;
+    const source = await tx.order.findUnique({
+      where: { id: input.restartOrderId },
+    });
+    if (
+      !source ||
+      !((user && source.userId === user.id) || source.guestHash === guestHash)
+    )
+      fail("NOT_FOUND", "Không tìm thấy đơn hàng.", 404);
+    if (source.idempotencyKey === input.idempotencyKey) return source;
+    if (
+      source.dailyPlanId ||
+      !isOrderExpired(source) ||
+      !["PENDING", "CANCELLED"].includes(source.status)
+    )
+      fail(
+        "ORDER_RESTART_UNAVAILABLE",
+        "Chỉ khôi phục đơn hết hạn chưa thanh toán. Đơn có thể đã được đặt lại ở cửa sổ khác.",
+        409,
+      );
+    if (
+      await tx.payment.count({
+        where: { orderId: source.id, state: { in: ["REVIEW", "MATCHED"] } },
+      })
+    )
+      fail(
+        "PAYMENT_REVIEW_PENDING",
+        "Đơn có giao dịch cần đối soát. Liên hệ cửa hàng trước khi đặt lại.",
+        409,
+      );
+    if (source.status === "PENDING")
+      await cancelOrder(tx, source.id, "Tự động hủy do hết hạn thanh toán");
+    restart = await tx.order.findUniqueOrThrow({ where: { id: source.id } });
+    const grant = await tx.qrGrant.findUnique({
+      where: { orderId: source.id },
+    });
+    if (restart.stockState !== "RELEASED" || grant?.claimsCount)
+      fail(
+        "ORDER_RESTART_UNAVAILABLE",
+        "Đơn cần cửa hàng kiểm tra trước khi đặt lại.",
+        409,
+      );
+    await tx.orderPaymentAttempt.upsert({
+      where: { code: source.paymentCode ?? source.code },
+      create: {
+        code: source.paymentCode ?? source.code,
+        idempotencyKey: source.idempotencyKey,
+        orderId: source.id,
+      },
+      update: {},
+    });
   }
   if (
     input.paymentMethod === "SEPAY" &&
@@ -373,7 +442,13 @@ export async function createOrderTx(
     !(await tx.$executeRaw`UPDATE SlotBooking SET count = count + 1 WHERE day = ${input.deliveryDay} AND slotId = ${input.slotId} AND count < ${q.slot.capacity}`)
   )
     fail("DELIVERY_SLOT_FULL", "Khung giờ vừa đầy.", 409);
-  const id = `ord_${randomBytes(12).toString("hex")}`;
+  const id = restart?.id ?? `ord_${randomBytes(12).toString("hex")}`;
+  const attempt = (restart?.checkoutAttempt ?? 0) + 1;
+  const orderCode =
+    restart?.code ?? `FLR${randomBytes(6).toString("hex").toUpperCase()}`;
+  const paymentCode = restart
+    ? `FLR${randomBytes(6).toString("hex").toUpperCase()}`
+    : null;
   if (q.rewardId) {
     const result = await tx.reward.updateMany({
       where: { id: q.rewardId, status: "AVAILABLE" },
@@ -387,96 +462,153 @@ export async function createOrderTx(
       !(await tx.$executeRaw`UPDATE Voucher SET used = used + 1 WHERE id = ${q.voucherId} AND used < \`limit\``)
     )
       fail("VOUCHER_UNAVAILABLE", "Mã đã hết lượt.", 409);
-    await tx.voucherUse.create({
-      data: { voucherId: q.voucherId, orderId: id },
+    await tx.voucherUse.upsert({
+      where: { orderId: id },
+      create: { voucherId: q.voucherId, orderId: id },
+      update: { voucherId: q.voucherId, state: "RESERVED" },
     });
   }
   const qrToken = token();
   let allocated = 0;
-  const order = await tx.order.create({
-    data: {
-      id,
-      code: `FLR${randomBytes(6).toString("hex").toUpperCase()}`,
-      idempotencyKey: input.idempotencyKey,
-      userId: user?.id,
-      guestHash: user ? null : guestHash,
-      analyticsClientId: options.analyticsClientId,
-      source: options.source ?? "WEBSITE",
-      createdBy: options.createdBy,
-      buyerName: input.buyerName,
-      buyerEmail: input.buyerEmail,
-      recipientName: input.recipientName,
-      recipientPhone: input.recipientPhone,
-      address: q.shipping.address ?? input.address,
-      zoneId: q.shipping.zoneId,
-      shippingMethod: q.shipping.method,
-      shippingSnapshot: q.shipping.snapshot
-        ? ({
-            ...q.shipping.snapshot,
-            addressDetails: input.addressDetails ?? "",
-          } as unknown as Prisma.InputJsonValue)
-        : Prisma.DbNull,
-      shippingQuoteId:
-        q.shipping.method === "DISTANCE" ? input.shippingQuoteId : null,
-      deliveryDay: input.deliveryDay,
-      slotId: input.slotId,
-      slotLabel: q.slot.label,
-      deliveryStart: localInstant(input.deliveryDay, q.slot.startHour),
-      deliveryEnd: localInstant(input.deliveryDay, q.slot.endHour),
-      cardMessage: input.cardMessage,
-      cardWritingMode: input.cardWritingMode,
-      note: input.note,
-      paymentMethod: input.paymentMethod,
-      manualPayment: !!options.createdBy,
-      paymentDueAt: options.paymentDueAt,
-      subtotal: q.subtotal,
-      discount: q.discount,
-      deliveryFee: q.deliveryFee,
-      total: q.total,
-      discountLabel: q.discountLabel,
-      memberPeriodId: periodId,
-      memberState: periodId ? "RESERVED" : null,
-      rewardId: q.rewardId,
-      expiresAt: new Date(
-        Date.now() +
-          (input.paymentMethod === "COD" ? 24 * 3600000 : 15 * 60000),
-      ),
-      items: {
-        create: q.items.map((item) => {
-          const eligible = q.eligibleVariantIds.includes(item.variantId);
-          const lastEligible = q.items
-            .filter((i) => q.eligibleVariantIds.includes(i.variantId))
-            .at(-1)?.variantId;
-          const discount = !eligible
-            ? 0
-            : item.variantId === lastEligible
-              ? q.discount - allocated
-              : Math.floor(
-                  (q.discount * item.price * item.quantity) / q.discountBase,
-                );
-          allocated += discount;
-          return { ...item, discount };
-        }),
+  const data = {
+    id,
+    code: orderCode,
+    paymentCode,
+    checkoutAttempt: attempt,
+    status: "PENDING",
+    fulfillment: "UNASSIGNED",
+    stockState: "RESERVED",
+    paymentStatus: "UNPAID",
+    expiredAt: null,
+    paidAt: null,
+    deliveredAt: null,
+    assignee: "",
+    idempotencyKey: input.idempotencyKey,
+    userId: user?.id ?? null,
+    guestHash: user ? null : guestHash,
+    analyticsClientId: options.analyticsClientId ?? null,
+    source: restart?.source ?? options.source ?? "WEBSITE",
+    createdBy: restart?.createdBy ?? options.createdBy,
+    buyerName: input.buyerName,
+    buyerEmail: input.buyerEmail,
+    recipientName: input.recipientName,
+    recipientPhone: input.recipientPhone,
+    address: q.shipping.address ?? input.address,
+    zoneId: q.shipping.zoneId,
+    shippingMethod: q.shipping.method,
+    shippingSnapshot: q.shipping.snapshot
+      ? ({
+          ...q.shipping.snapshot,
+          addressDetails: input.addressDetails ?? "",
+        } as unknown as Prisma.InputJsonValue)
+      : Prisma.DbNull,
+    shippingQuoteId:
+      q.shipping.method === "DISTANCE" ? input.shippingQuoteId : null,
+    deliveryDay: input.deliveryDay,
+    slotId: input.slotId,
+    slotLabel: q.slot.label,
+    deliveryStart: localInstant(input.deliveryDay, q.slot.startHour),
+    deliveryEnd: localInstant(input.deliveryDay, q.slot.endHour),
+    cardMessage: input.cardMessage,
+    cardWritingMode: input.cardWritingMode,
+    note: input.note,
+    paymentMethod: input.paymentMethod,
+    manualPayment: !!options.createdBy,
+    paymentDueAt: options.paymentDueAt ?? null,
+    subtotal: q.subtotal,
+    discount: q.discount,
+    deliveryFee: q.deliveryFee,
+    total: q.total,
+    discountLabel: q.discountLabel,
+    memberPeriodId: periodId ?? null,
+    memberState: periodId ? "RESERVED" : null,
+    rewardId: q.rewardId ?? null,
+    expiresAt: new Date(
+      Date.now() + (input.paymentMethod === "COD" ? 24 * 3600000 : 15 * 60000),
+    ),
+    items: {
+      create: q.items.map((item) => {
+        const eligible = q.eligibleVariantIds.includes(item.variantId);
+        const lastEligible = q.items
+          .filter((i) => q.eligibleVariantIds.includes(i.variantId))
+          .at(-1)?.variantId;
+        const discount = !eligible
+          ? 0
+          : item.variantId === lastEligible
+            ? q.discount - allocated
+            : Math.floor(
+                (q.discount * item.price * item.quantity) / q.discountBase,
+              );
+        allocated += discount;
+        return { ...item, discount };
+      }),
+    },
+    qr: {
+      create: {
+        tokenHash: hash(qrToken),
+        tokenEncrypted: encrypt(qrToken),
+        maxClaims: q.settings.qrMaxClaims,
       },
-      qr: {
-        create: {
-          tokenHash: hash(qrToken),
-          tokenEncrypted: encrypt(qrToken),
-          maxClaims: q.settings.qrMaxClaims,
+    },
+    paymentAttempts: {
+      create: {
+        code: paymentCode ?? orderCode,
+        idempotencyKey: input.idempotencyKey,
+      },
+    },
+    history: {
+      create: {
+        text: restart
+          ? "Khách đã đặt lại đơn · Chờ xác nhận · Đã cấp hạn và mã thanh toán mới"
+          : "Đã tiếp nhận đơn hàng",
+      },
+    },
+  };
+  const order = restart
+    ? await tx.order.update({
+        where: { id },
+        data: {
+          ...data,
+          version: { increment: 1 },
+          items: { deleteMany: {}, create: data.items.create },
+          qr: {
+            update: {
+              ...data.qr.create,
+              eligibleAt: null,
+              expiresAt: null,
+              revoked: false,
+              claimsCount: 0,
+            },
+          },
+        },
+      })
+    : await tx.order.create({ data });
+  if (restart)
+    await tx.audit.create({
+      data: {
+        actorId: user?.id ?? "GUEST",
+        action: "order.restarted",
+        entityId: id,
+        detail: {
+          attempt,
+          oldPaymentCode: restart.paymentCode ?? restart.code,
+          paymentCode,
+          previousTotal: restart.total,
+          total: order.total,
+          previousDeliveryDay: restart.deliveryDay,
+          deliveryDay: order.deliveryDay,
         },
       },
-      history: { create: { text: "Đã tiếp nhận đơn hàng" } },
-    },
-  });
+    });
   if (periodId)
     await tx.memberLedger.create({
-      data: { periodId, orderId: id, action: "RESERVED" },
+      data: { periodId, orderId: id, action: "RESERVED", attempt },
     });
   if (options.notify !== false && user)
     await tx.notification.create({
       data: {
         userId: user.id,
-        title: `Đã tiếp nhận đơn ${order.code}`,
+        title: `${restart ? "Đã đặt lại đơn" : "Đã tiếp nhận đơn"} ${order.code}`,
         body: "Cửa hàng đã nhận đơn hoa của bạn. Bạn có thể theo dõi thanh toán và giao hoa tại đây.",
         url: `/orders/${order.id}`,
       },
@@ -485,8 +617,8 @@ export async function createOrderTx(
     await tx.outbox.create({
       data: {
         userId: user?.id,
-        event: "order.created",
-        payload: { orderId: id, version: 1 },
+        event: restart ? "order.status_changed" : "order.created",
+        payload: { orderId: id, version: order.version },
       },
     });
   return order;
@@ -498,6 +630,7 @@ export async function consumeBenefits(
     memberPeriodId: string | null;
     memberState: string | null;
     rewardId: string | null;
+    checkoutAttempt?: number;
   },
 ) {
   if (order.memberPeriodId && order.memberState === "RESERVED") {
@@ -510,6 +643,7 @@ export async function consumeBenefits(
         periodId: order.memberPeriodId,
         orderId: order.id,
         action: "CONSUMED",
+        attempt: order.checkoutAttempt ?? 1,
       },
     });
     await tx.order.update({
@@ -592,7 +726,12 @@ async function terminateOrder(
         data: { reserved: { decrement: 1 } },
       });
       await tx.memberLedger.create({
-        data: { periodId: order.memberPeriodId, orderId, action: "RELEASED" },
+        data: {
+          periodId: order.memberPeriodId,
+          orderId,
+          action: "RELEASED",
+          attempt: order.checkoutAttempt,
+        },
       });
     }
     if (order.memberPeriodId && order.memberState === "CONSUMED") {
@@ -605,7 +744,12 @@ async function terminateOrder(
           data: { consumed: { decrement: 1 } },
         });
         await tx.memberLedger.create({
-          data: { periodId: period.id, orderId, action: "RETURNED" },
+          data: {
+            periodId: period.id,
+            orderId,
+            action: "RETURNED",
+            attempt: order.checkoutAttempt,
+          },
         });
       }
     }
@@ -859,6 +1003,8 @@ export async function transitionOrderTx(
     )
       await queuePurchase(tx, id);
     if (action === "DELIVER" && o.userId) await recordMembershipSpend(tx, id);
+    if (action === "DELIVER" && o.dailyPlanId)
+      await (await import("./daily-operations")).dailyOrderDeliveredTx(tx, id);
     if (
       (action === "CONFIRM" &&
         o.paymentMethod === "SEPAY" &&
@@ -1130,8 +1276,34 @@ export async function receiveSepay(
     )
       return { success: true, duplicate: true };
     const code =
-      input.code?.match(/^FL[RM][A-F0-9]{12}$/)?.[0] ??
-      input.content.toUpperCase().match(/\bFL[RM][A-F0-9]{12}\b/)?.[0];
+      input.code?.match(/^FL[RMD][A-F0-9]{12}$/)?.[0] ??
+      input.content.toUpperCase().match(/\bFL[RMD][A-F0-9]{12}\b/)?.[0];
+    if (code?.startsWith("FLD")) {
+      const invoice = await tx.dailyInvoice.findUnique({ where: { code } });
+      const matched =
+        !!invoice &&
+        invoice.amount === input.transferAmount &&
+        (await (await import("./daily")).activateDailyInvoice(tx, invoice.id));
+      await tx.payment.create({
+        data: {
+          providerId: id,
+          identityHash,
+          reference: input.referenceCode ?? "",
+          dailyInvoiceId: invoice?.id,
+          amount: input.transferAmount,
+          state: matched ? "MATCHED" : "REVIEW",
+          reason: matched
+            ? ""
+            : "Daily: kiểm tra số tiền, thời hạn hoặc lịch đã thay đổi.",
+        },
+      });
+      if (invoice && !matched && invoice.state !== "PAID")
+        await tx.dailyInvoice.update({
+          where: { id: invoice.id },
+          data: { state: "REVIEW" },
+        });
+      return { success: true, matched };
+    }
     if (code?.startsWith("FLM")) {
       const lookup = await tx.membershipInvoice.findUnique({ where: { code } });
       if (lookup) await lockMember(tx, lookup.userId);
@@ -1178,7 +1350,14 @@ export async function receiveSepay(
       });
       return { success: true, matched };
     }
-    const o = code ? await tx.order.findUnique({ where: { code } }) : null;
+    const attempt = code
+      ? await tx.orderPaymentAttempt.findUnique({ where: { code } })
+      : null;
+    const o = attempt
+      ? await tx.order.findUnique({ where: { id: attempt.orderId } })
+      : code
+        ? await tx.order.findUnique({ where: { code } })
+        : null;
     const locked = o
       ? await tx.$queryRaw<
           DbOrder[]
@@ -1188,6 +1367,7 @@ export async function receiveSepay(
     const matched =
       order &&
       order.paymentMethod === "SEPAY" &&
+      code === (order.paymentCode ?? order.code) &&
       ["UNPAID", "PENDING"].includes(order.paymentStatus) &&
       !stoppedOrderStatuses.includes(order.status) &&
       !isPaymentOverdue(order) &&
@@ -1275,13 +1455,23 @@ export async function receiveSepay(
     return { success: true, matched: !!matched || manuallyMatched };
   });
 }
-export async function expireReservations() {
+export async function expireReservations(orderId?: string) {
+  const now = new Date();
   const expired = await db.order.findMany({
     where: {
+      ...(orderId ? { id: orderId } : {}),
       status: "PENDING",
-      manualPayment: false,
+      fulfillment: "UNASSIGNED",
+      dailyPlanId: null,
       paymentStatus: { in: ["UNPAID", "PENDING"] },
-      expiresAt: { lt: new Date() },
+      OR: [
+        { manualPayment: false, expiresAt: { lte: now } },
+        {
+          manualPayment: true,
+          paymentMethod: "SEPAY",
+          paymentDueAt: { lte: now },
+        },
+      ],
     },
     take: 50,
     select: { id: true },
@@ -1292,20 +1482,34 @@ export async function expireReservations() {
       const fresh = await tx.order.findUniqueOrThrow({ where: { id: o.id } });
       if (
         fresh.status === "PENDING" &&
-        !fresh.manualPayment &&
-        ["UNPAID", "PENDING"].includes(fresh.paymentStatus) &&
-        fresh.expiresAt < new Date()
+        fresh.fulfillment === "UNASSIGNED" &&
+        !fresh.dailyPlanId &&
+        isOrderExpired(fresh)
       ) {
-        await cancelOrder(tx, o.id, "Đơn hết thời gian xác nhận/thanh toán");
+        const cancelled = await cancelOrder(
+          tx,
+          o.id,
+          "Tự động hủy do hết hạn xác nhận/thanh toán",
+        );
         await tx.outbox.create({
           data: {
             userId: fresh.userId,
             event: "order.status_changed",
-            payload: { orderId: o.id, version: fresh.version + 1 },
+            payload: { orderId: o.id, version: cancelled.version },
           },
         });
+        if (fresh.userId)
+          await tx.notification.create({
+            data: {
+              userId: fresh.userId,
+              title: `Đơn ${fresh.code} đã hủy`,
+              body: "Đơn đã hết hạn thanh toán. Bạn có thể đặt lại để kiểm tra giá, tồn kho và chọn lịch giao mới.",
+              url: `/orders/${fresh.id}`,
+            },
+          });
       }
     });
+  if (orderId) return expired.length;
   await db.rateLimit.deleteMany({ where: { expiresAt: { lt: new Date() } } });
   await db.session.deleteMany({ where: { expiresAt: { lt: new Date() } } });
   const shippingCutoff = new Date(Date.now() - 86400000);

@@ -11,10 +11,12 @@ import {
 } from "@/lib/shipping";
 import {
   saveCatalogProduct,
+  listCatalogProducts,
   setProductVisibility,
   saveCatalogTaxonomy,
   hideCatalogTaxonomy,
 } from "@/lib/catalog-admin";
+import { productClassifications } from "@/lib/catalogue";
 import {
   confirmOrderPayment,
   stopAndRefundOrder,
@@ -106,6 +108,8 @@ import {
 } from "@/lib/reward-rules";
 import type { Prisma } from "@prisma/client";
 import { handleMembershipApi } from "@/lib/membership-api";
+import { handleDailyApi } from "@/lib/daily-api";
+import { dailyFinancialSummary } from "@/lib/daily-finance";
 import {
   getMembershipTiers,
   resolveMembership,
@@ -489,6 +493,8 @@ async function route(req: NextRequest, context: Context) {
         }),
       );
     }
+    const dailyResponse = await handleDailyApi(req, path, user, body);
+    if (dailyResponse) return dailyResponse;
     const membershipResponse = await handleMembershipApi(req, path, user, body);
     if (membershipResponse) return membershipResponse;
     if (action === "bootstrap" && method === "GET") {
@@ -496,7 +502,10 @@ async function route(req: NextRequest, context: Context) {
         await Promise.all([
           db.product.findMany({
             where: { active: true },
-            include: { variants: true },
+            include: {
+              variants: true,
+              taxonomies: { include: { taxonomy: true } },
+            },
             orderBy: { sortOrder: "asc" },
           }),
           db.deliveryZone.findMany({ where: { active: true } }),
@@ -515,7 +524,7 @@ async function route(req: NextRequest, context: Context) {
         ]);
       return json({
         shipping: await shippingPublic(),
-        products,
+        products: products.map(productClassifications),
         zones,
         slots,
         settings,
@@ -676,6 +685,8 @@ async function route(req: NextRequest, context: Context) {
           where: { OR },
           data: { analyticsClientId: null },
         });
+      if (user || clientId)
+        await db.$executeRaw`UPDATE DailyHistory dh JOIN DailyPlan p ON p.id=dh.planId SET dh.detail=JSON_REMOVE(dh.detail,'$.analyticsClientId') WHERE dh.action='created' AND (p.userId=${user?.id ?? ""} OR JSON_UNQUOTE(JSON_EXTRACT(dh.detail,'$.analyticsClientId'))=${clientId ?? ""})`;
       if (clientId)
         await db.outbox.updateMany({
           where: {
@@ -914,6 +925,7 @@ async function route(req: NextRequest, context: Context) {
       );
     }
     if (path[0] === "orders" && path.length === 2 && method === "GET") {
+      await expireReservations(path[1]);
       const order = await db.order.findUnique({
         where: { id: path[1] },
         include: {
@@ -935,7 +947,8 @@ async function route(req: NextRequest, context: Context) {
         ["UNPAID", "PENDING"].includes(order.paymentStatus) &&
         !stoppedOrderStatuses.includes(order.status) &&
         !isPaymentOverdue(order)
-          ? (sepayQrUrl(sepay, order.total, order.code) ?? null)
+          ? (sepayQrUrl(sepay, order.total, order.paymentCode ?? order.code) ??
+            null)
           : null;
       return json({
         ...customerOrder(order),
@@ -993,6 +1006,7 @@ async function route(req: NextRequest, context: Context) {
     }
     if (action === "me" && method === "GET") {
       const u = requireUser();
+      await expireReservations();
       if (u.memberSince && u.birthDate)
         await atomic((tx) => issueBirthdayReward(tx, u.id));
       const membership = await resolveMembership(u.id);
@@ -1723,6 +1737,8 @@ async function route(req: NextRequest, context: Context) {
         );
       }
       if (method === "GET") {
+        if (["orders", "calendar", "overview", "analytics"].includes(section))
+          await expireReservations();
         if (section === "taxonomies")
           return json(await db.taxonomy.findMany({ orderBy: { kind: "asc" } }));
         if (section === "reviews")
@@ -1745,10 +1761,13 @@ async function route(req: NextRequest, context: Context) {
               db.reward.count(),
               db.payment.count({ where: { state: "REVIEW" } }),
             ]);
-          const paid = orders.filter((o) =>
-            ["PAID", "PARTIALLY_REFUNDED", "REFUNDED"].includes(
-              o.paymentStatus,
-            ),
+          const daily = await dailyFinancialSummary();
+          const paid = orders.filter(
+            (o) =>
+              !o.dailyPlanId &&
+              ["PAID", "PARTIALLY_REFUNDED", "REFUNDED"].includes(
+                o.paymentStatus,
+              ),
           );
           return json({
             orders: orders.map((o) => ({
@@ -1757,16 +1776,19 @@ async function route(req: NextRequest, context: Context) {
               buyerName: o.buyerName,
               deliveryDay: o.deliveryDay,
               total: o.total,
-              netPaid: ["PAID", "PARTIALLY_REFUNDED", "REFUNDED"].includes(
-                o.paymentStatus,
-              )
-                ? (o.receipt?.destination === "SHIPPER" && !o.receipt.remittedAt
-                    ? 0
-                    : o.total) -
-                  o.refunds
-                    .filter((r) => r.status === "COMPLETED")
-                    .reduce((s, r) => s + r.amount, 0)
-                : 0,
+              netPaid:
+                !o.dailyPlanId &&
+                ["PAID", "PARTIALLY_REFUNDED", "REFUNDED"].includes(
+                  o.paymentStatus,
+                )
+                  ? (o.receipt?.destination === "SHIPPER" &&
+                    !o.receipt.remittedAt
+                      ? 0
+                      : o.total) -
+                    o.refunds
+                      .filter((r) => r.status === "COMPLETED")
+                      .reduce((s, r) => s + r.amount, 0)
+                  : 0,
               status: o.status,
               fulfillment: o.fulfillment,
               paymentStatus: o.paymentStatus,
@@ -1781,6 +1803,7 @@ async function route(req: NextRequest, context: Context) {
             products,
             rewards,
             paymentReviews: payments,
+            daily,
             revenue: paid.reduce(
               (s, o) =>
                 s +
@@ -1794,7 +1817,7 @@ async function route(req: NextRequest, context: Context) {
             ),
             discount: paid.reduce((s, o) => s + o.discount, 0),
             today: dayKey(),
-            reportScope: "200 đơn gần nhất",
+            reportScope: "200 đơn gần nhất, tiền gói Daily báo riêng",
             analyticsEnabled: analyticsEnabled(),
           });
         }
@@ -1828,7 +1851,10 @@ async function route(req: NextRequest, context: Context) {
               where,
               take: section === "calendar" ? 1000 : 50,
               skip: section === "calendar" ? 0 : (page - 1) * 50,
-              orderBy: { createdAt: "desc" },
+              orderBy:
+                section === "calendar"
+                  ? { createdAt: "desc" }
+                  : [{ updatedAt: "desc" }, { id: "desc" }],
               include: {
                 items: true,
                 history: true,
@@ -1867,12 +1893,7 @@ async function route(req: NextRequest, context: Context) {
           });
         }
         if (section === "products" || section === "inventory")
-          return json(
-            await db.product.findMany({
-              include: { variants: true },
-              orderBy: { sortOrder: "asc" },
-            }),
-          );
+          return json(await listCatalogProducts(actor));
         if (section === "customers" || section === "members")
           return json(
             await db.user.findMany({
@@ -1924,12 +1945,15 @@ async function route(req: NextRequest, context: Context) {
             payments: await db.payment.findMany({
               take: 100,
               orderBy: { receivedAt: "desc" },
-              include: { order: { select: { code: true } } },
+              include: {
+                order: { select: { code: true, dailyPlanId: true } },
+                dailyInvoice: { select: { code: true, planId: true } },
+              },
             }),
             refunds: await db.refund.findMany({
               take: 100,
               orderBy: { createdAt: "desc" },
-              include: { order: { select: { code: true } } },
+              include: { order: { select: { code: true, dailyPlanId: true } } },
             }),
             configured: (await getSepayConfig()).configured,
           });

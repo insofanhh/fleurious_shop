@@ -7,6 +7,7 @@ export const pageTitles: Record<string, string> = {
   flowers: "Hoa tươi và những bó hoa dành tặng",
   collections: "Bộ sưu tập hoa theo dịp tặng",
   membership: "Hội viên Fleurious",
+  daily: "Fleurious Daily — Hẹn hoa mỗi ngày tại Hà Nội",
   about: "Chuyện của hoa và Fleurious",
   delivery: "Giao hoa tại Hà Nội",
   returns: "Đổi trả và hỗ trợ",
@@ -63,7 +64,8 @@ export function publicPageMetadata(
       "streak",
       "favorites",
     ].includes(first) ||
-    (first === "membership" && second === "invoices");
+    (first === "membership" && second === "invoices") ||
+    (first === "daily" && second === "create");
   return {
     title: { absolute: title },
     description,

@@ -55,6 +55,17 @@ export async function fundWaitingRewards() {
   });
 }
 export async function ensureCleanupJob() {
+  const dailyMinute = Math.floor(Date.now() / 60000);
+  await db.jobRun.upsert({
+    where: { id: `daily-maintenance:${dailyMinute}` },
+    create: {
+      id: `daily-maintenance:${dailyMinute}`,
+      name: "daily-maintenance",
+      status: "QUEUED",
+      detail: "",
+    },
+    update: {},
+  });
   const collectionId = `collection-reminders:${Math.floor(Date.now() / 300000) * 5}`;
   await db.jobRun.upsert({
     where: { id: collectionId },
@@ -152,6 +163,8 @@ export async function processJobs(onlyId?: string) {
       if (["membership-maintenance", "membership-recheck"].includes(job.name))
         await membershipMaintenance(job.name === "membership-recheck");
       if (job.name === "reconcile") await reconcileSepay();
+      if (job.name === "daily-maintenance")
+        await (await import("./daily-operations")).dailyMaintenance();
       if (job.name === "collection-reminders") await remindCollections();
       if (job.name === "delivery-reminders") {
         const orders = await db.order.findMany({

@@ -3,6 +3,7 @@ import { db } from "./db";
 import { fail } from "./errors";
 import { getSepayConfig, sepayQrUrl } from "./sepay-settings";
 import { stoppedOrderStatuses } from "./order-workflow";
+import { expireReservations } from "./commerce";
 import {
   isOrderExpired,
   isPaymentOverdue,
@@ -27,10 +28,16 @@ async function findTrackingOrder(raw: unknown) {
       "Không tìm thấy đơn. Kiểm tra lại mã được cửa hàng cung cấp.",
       404,
     );
+  const candidate = await db.order.findUnique({
+    where: { code: input.data.code },
+    select: { id: true },
+  });
+  if (candidate) await expireReservations(candidate.id);
   const order = await db.order.findUnique({
     where: { code: input.data.code },
     select: {
       code: true,
+      paymentCode: true,
       status: true,
       fulfillment: true,
       paymentStatus: true,
@@ -96,7 +103,7 @@ export async function trackingPayment(raw: unknown) {
       409,
     );
   const config = await getSepayConfig();
-  const url = sepayQrUrl(config, order.total, order.code);
+  const url = sepayQrUrl(config, order.total, order.paymentCode ?? order.code);
   if (!url)
     fail(
       "PAYMENT_QR_UNAVAILABLE",
@@ -104,7 +111,7 @@ export async function trackingPayment(raw: unknown) {
       409,
     );
   return {
-    code: order.code,
+    code: order.paymentCode ?? order.code,
     amount: order.total,
     url,
     bank: config.bank,

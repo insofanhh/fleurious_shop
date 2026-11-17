@@ -15,6 +15,9 @@ export type Product = {
   category: string;
   occasion: string;
   color: string;
+  categories?: string[];
+  occasions?: string[];
+  colors?: string[];
   image: string;
   images: string[];
   badge: string;
@@ -91,6 +94,8 @@ export type Reward = {
   expiresAt: string;
 };
 export type Order = {
+  paymentCode?: string | null;
+  dailyPlanId?: string | null;
   shippingMethod?: string;
   shippingSnapshot?: import("./shipping-types").ShippingSnapshot | null;
   manualPayment?: boolean;

@@ -24,6 +24,8 @@ export async function prepareReorder(
       )
     )
       fail("NOT_FOUND", "Không tìm thấy đơn hàng.", 404);
+    if (order.dailyPlanId && !isDeliveredOrder(order))
+      fail("DAILY_FUNDING", "Mở gói Hoa mỗi ngày để quản lý lịch giao.", 409);
     if (!isOrderExpired(order) && !isDeliveredOrder(order))
       fail(
         "ORDER_NOT_EXPIRED",
@@ -68,6 +70,7 @@ export async function prepareReorder(
     return {
       items,
       notices,
+      restartOrderId: isDeliveredOrder(order) ? undefined : order.id,
       draft: {
         buyerName: order.buyerName,
         buyerEmail: order.buyerEmail,

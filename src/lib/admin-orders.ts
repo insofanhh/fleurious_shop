@@ -14,25 +14,33 @@ import { fail } from "./errors";
 import { dayKey } from "./time";
 import { getSettings } from "./settings";
 
-export const adminOrderSchema = checkoutSchema.extend({
-  buyerEmail: z.union([z.email().max(200), z.literal("")]).default(""),
-  customerId: z.string().min(1).max(100).optional(),
-  source: z.enum(["ZALO", "FACEBOOK", "INSTAGRAM", "IN_STORE", "OTHER"]),
-  initialStage: z
-    .enum([
-      "PENDING",
-      "CONFIRMED",
-      "PREPARING",
-      "READY",
-      "OUT_FOR_DELIVERY",
-      "DELIVERED",
-    ])
-    .default("PENDING"),
-  initialPayment: z.enum(["UNPAID", "PAID"]).default("UNPAID"),
-  paymentReference: z.string().trim().max(100).default(""),
-  paymentReason: z.string().trim().max(300).default(""),
-  paymentTermMinutes: z.number().int().min(15).max(43200).nullable().optional(),
-});
+export const adminOrderSchema = checkoutSchema
+  .omit({ restartOrderId: true })
+  .extend({
+    buyerEmail: z.union([z.email().max(200), z.literal("")]).default(""),
+    customerId: z.string().min(1).max(100).optional(),
+    source: z.enum(["ZALO", "FACEBOOK", "INSTAGRAM", "IN_STORE", "OTHER"]),
+    initialStage: z
+      .enum([
+        "PENDING",
+        "CONFIRMED",
+        "PREPARING",
+        "READY",
+        "OUT_FOR_DELIVERY",
+        "DELIVERED",
+      ])
+      .default("PENDING"),
+    initialPayment: z.enum(["UNPAID", "PAID"]).default("UNPAID"),
+    paymentReference: z.string().trim().max(100).default(""),
+    paymentReason: z.string().trim().max(300).default(""),
+    paymentTermMinutes: z
+      .number()
+      .int()
+      .min(15)
+      .max(43200)
+      .nullable()
+      .optional(),
+  });
 export const adminQuoteSchema = adminOrderSchema
   .pick({
     items: true,
@@ -113,9 +121,16 @@ export async function createAdminOrder(raw: unknown, actor: User) {
   const input = adminOrderSchema.parse(raw);
   validateState(input);
   return atomic(async (tx) => {
-    const existing = await tx.order.findUnique({
-      where: { idempotencyKey: input.idempotencyKey },
-    });
+    const existing =
+      (
+        await tx.orderPaymentAttempt.findUnique({
+          where: { idempotencyKey: input.idempotencyKey },
+          include: { order: true },
+        })
+      )?.order ??
+      (await tx.order.findUnique({
+        where: { idempotencyKey: input.idempotencyKey },
+      }));
     if (existing) {
       if (existing.createdBy !== actor.id)
         fail("IDEMPOTENCY_CONFLICT", "Yêu cầu này thuộc người tạo khác.", 409);

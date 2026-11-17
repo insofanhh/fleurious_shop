@@ -1,6 +1,7 @@
 import { cache } from "react";
 import type { Prisma } from "@prisma/client";
 import { db } from "./db";
+import { productClassifications } from "./catalogue";
 
 type RouteData = {
   product?: Prisma.ProductGetPayload<{ include: { variants: true } }>;
@@ -11,6 +12,7 @@ const singlePages = new Set([
   "flowers",
   "collections",
   "membership",
+  "daily",
   "streak",
   "cart",
   "checkout",
@@ -28,6 +30,7 @@ const contentPages = new Set([
   "cham-hoa",
 ]);
 const accountPages = new Set([
+  "daily",
   "orders",
   "rewards",
   "membership",
@@ -60,14 +63,15 @@ const resolve = cache(async (key: string): Promise<RouteData | null> => {
   if (!first) return {};
 
   if (segments.length === 2) {
+    if (first === "daily" && second === "create") return {};
     if (first === "flowers") {
       const product = await db.product.findFirst({
         where: { slug: second, active: true },
-        include: { variants: true },
+        include: { variants: true, taxonomies: { include: { taxonomy: true } } },
       });
       return product
         ? {
-            product,
+            product: productClassifications(product),
             metadata: { title: product.name, description: product.subtitle },
           }
         : null;
@@ -89,6 +93,8 @@ const resolve = cache(async (key: string): Promise<RouteData | null> => {
     if (first === "orders" || first === "q") return {};
     return null;
   }
+  if (segments.length === 3 && first === "account" && second === "daily")
+    return {};
   if (segments.length === 3 && first === "membership" && second === "invoices")
     return {};
   if (segments.length !== 1) return null;

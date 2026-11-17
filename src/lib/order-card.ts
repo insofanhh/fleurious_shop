@@ -33,7 +33,14 @@ export async function getOrderCard(
   const origin = new URL(process.env.APP_URL ?? "http://localhost:3000");
   const card: FlowerCard = {
     code: order.code,
-    buyerName: order.buyerName,
+    buyerName: order.dailyPlanId
+      ? ((
+          await db.dailyPlan.findUnique({
+            where: { id: order.dailyPlanId },
+            select: { senderName: true },
+          })
+        )?.senderName ?? order.buyerName)
+      : order.buyerName,
     recipientName: order.recipientName,
     message: order.cardMessage,
     writingMode:

@@ -87,6 +87,7 @@ model Product {
   createdAt DateTime @default(now())
   variants ProductVariant[]
   favorites Favorite[]
+  taxonomies ProductTaxonomy[]
 }
 model Taxonomy {
   id String @id @default(cuid())
@@ -97,6 +98,15 @@ model Taxonomy {
   image String @default("") @db.VarChar(2048)
   productIds Json
   active Boolean @default(true)
+  products ProductTaxonomy[]
+}
+model ProductTaxonomy {
+  productId String
+  taxonomyId String
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  taxonomy Taxonomy @relation(fields: [taxonomyId], references: [id], onDelete: Cascade)
+  @@id([productId, taxonomyId])
+  @@index([taxonomyId])
 }
 model Review {
   id String @id @default(cuid())
@@ -174,6 +184,8 @@ model Order {
   analyticsClientId String?
   source String @default("WEBSITE")
   createdBy String?
+  dailyPlanId String?
+  dailyDelivery DailyDelivery?
   expiredAt DateTime?
   buyerName String
   buyerEmail String @db.VarChar(254)
@@ -200,6 +212,8 @@ model Order {
   paymentMethod String
   manualPayment Boolean @default(false)
   paymentDueAt DateTime?
+  paymentCode String?
+  checkoutAttempt Int @default(1)
   subtotal Int
   discount Int @default(0)
   deliveryFee Int
@@ -222,9 +236,19 @@ model Order {
   refunds Refund[]
   receivable CodReceivable?
   receipt OrderReceipt?
+  paymentAttempts OrderPaymentAttempt[]
   @@index([deliveryDay, fulfillment])
   @@index([userId, createdAt])
   @@index([paymentStatus, expiresAt])
+  @@index([status, paymentDueAt])
+}
+model OrderPaymentAttempt {
+  code String @id
+  idempotencyKey String @unique
+  orderId String
+  createdAt DateTime @default(now())
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  @@index([orderId])
 }
 model ShippingLocation {
   id String @id @default(cuid())
@@ -336,8 +360,9 @@ model MemberLedger {
   periodId String
   orderId String
   action String
+  attempt Int @default(1)
   createdAt DateTime @default(now())
-  @@unique([orderId, action])
+  @@unique([orderId, action, attempt])
 }
 model QrGrant {
   id String @id @default(cuid())
@@ -419,12 +444,14 @@ model Payment {
   reference String
   orderId String?
   membershipInvoiceId String?
+  dailyInvoiceId String?
   amount Int
   state String
   reason String @default("")
   receivedAt DateTime @default(now())
   order Order? @relation(fields: [orderId], references: [id])
   membershipInvoice MembershipInvoice? @relation(fields: [membershipInvoiceId], references: [id])
+  dailyInvoice DailyInvoice? @relation(fields: [dailyInvoiceId], references: [id])
 }
 model Refund {
   id String @id @default(cuid())
@@ -631,5 +658,125 @@ model MembershipHistory {
   detail Json
   createdAt DateTime @default(now())
   @@index([userId, createdAt])
+}
+
+model DailyOffering {
+  id String @id @default(cuid())
+  variantId String
+  budgetCode String
+  name String
+  description String @db.Text
+  tags Json
+  premium Int @default(0)
+  cost Int @default(0)
+  capacity Int @default(10)
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+  @@unique([variantId, budgetCode])
+}
+model DailyPlan {
+  id String @id @default(cuid())
+  code String @unique
+  idempotencyKey String @unique
+  userId String
+  buyerName String
+  buyerEmail String
+  recipientName String
+  recipientPhone String
+  senderName String
+  address String @db.VarChar(800)
+  shippingSnapshot Json
+  policy Json
+  budgetCode String
+  selectionMode String
+  preferences Json
+  state String @default("PENDING_PAYMENT")
+  total Int
+  subsidy Int @default(0)
+  version Int @default(1)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deliveries DailyDelivery[]
+  invoices DailyInvoice[]
+  refunds DailyRefund[]
+  history DailyHistory[]
+  @@index([userId, createdAt])
+  @@index([state, expiresAt])
+}
+model DailyDelivery {
+  id String @id @default(cuid())
+  planId String
+  day String
+  slotId String
+  slotLabel String
+  startHour Int
+  endHour Int
+  lockAt DateTime
+  offeringId String?
+  approved Boolean @default(false)
+  selectionSnapshot Json?
+  message String @db.Text
+  writingMode String @default("AUTO")
+  base Int
+  discount Int
+  premium Int @default(0)
+  shippingGross Int
+  subsidy Int
+  total Int
+  refunded Int @default(0)
+  refundPending Int @default(0)
+  state String @default("SCHEDULED")
+  reservation String @default("HELD")
+  orderId String? @unique
+  issue String @default("") @db.VarChar(500)
+  version Int @default(1)
+  plan DailyPlan @relation(fields: [planId], references: [id])
+  order Order? @relation(fields: [orderId], references: [id])
+  @@unique([planId, day])
+  @@index([day, slotId, reservation])
+  @@index([day, offeringId, reservation])
+  @@index([state, lockAt])
+}
+model DailyInvoice {
+  id String @id @default(cuid())
+  planId String
+  code String @unique
+  kind String @default("PURCHASE")
+  state String @default("PENDING")
+  amount Int
+  allocation Json
+  change Json?
+  idempotencyKey String @unique
+  expiresAt DateTime
+  paidAt DateTime?
+  createdAt DateTime @default(now())
+  plan DailyPlan @relation(fields: [planId], references: [id])
+  payments Payment[]
+  @@index([state, expiresAt])
+}
+model DailyRefund {
+  id String @id @default(cuid())
+  planId String
+  amount Int
+  allocation Json
+  reason String @db.VarChar(500)
+  state String @default("PENDING")
+  reference String @default("")
+  actorId String
+  createdAt DateTime @default(now())
+  completedAt DateTime?
+  plan DailyPlan @relation(fields: [planId], references: [id])
+  @@index([state, createdAt])
+}
+model DailyHistory {
+  id String @id @default(cuid())
+  planId String
+  actorId String
+  action String
+  detail Json
+  createdAt DateTime @default(now())
+  plan DailyPlan @relation(fields: [planId], references: [id])
+  @@index([planId, createdAt])
 }
 
